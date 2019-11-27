@@ -48,16 +48,14 @@ class Squeeze(object):
         key = hashlib.md5(response.get_data()).hexdigest()
         if key not in self.cache:
             self.cache[key] = self.compress(response, app.config["COMPRESS_LEVEL_STATIC"])
-            return self.cache[key]
-        else:
-            return self.cache[key]
+        return self.cache[key]
 
 
     def after_request(self, response):
         app = self.app or current_app
         if "br" not in request.headers.get("Accept-Encoding", "").lower():
             return response
-        if not 200 <= response.status_code < 300:
+        if not (200 <= response.status_code and response.status_code < 300):
             return response
         if response.content_length is not None:
             if response.content_length < app.config["COMPRESS_MIN_SIZE"]:
@@ -69,7 +67,6 @@ class Squeeze(object):
 
         # Only use caching for static files.
         if "/static/" in str(request):
-            print("STATIC RESOURCE")
             cached = self.retrieve_from_cache(app, request, response)
             response.data = cached
         else:
