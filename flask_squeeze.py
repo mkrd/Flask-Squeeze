@@ -12,6 +12,7 @@ class Squeeze(object):
         if app is not None:
             self.init_app(app)
 
+
     def init_app(self, app):
         app.config.setdefault("COMPRESS_MIN_SIZE", 500)
         app.config.setdefault("COMPRESS_FLAG", True)
@@ -49,7 +50,6 @@ class Squeeze(object):
             self.cache[key] = self.compress(response, app.config["COMPRESS_LEVEL_STATIC"])
             return self.cache[key]
         else:
-            log(f"\tSucessfully retrieved from cache.")
             return self.cache[key]
 
 
