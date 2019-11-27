@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name='Flask-Squeeze',
-    version='1.0',
+    version='1.6',
     url='https://github.com/mkrd/flask-squeeze',
     license='MIT License',
     author='Marcel Kröker',
@@ -20,11 +20,12 @@ setuptools.setup(
     description='Compress and minify Flask responses!',
     long_description=long_description,
     long_description_content_type="text/markdown",
+    py_modules=['flask_squeeze'],
     packages=setuptools.find_packages(),
+    include_package_data=True,
     platforms='any',
-    install_requires=[
-        'Flask',
-        'hashlib',
+    install_requires=[  
+        'flask',
         'brotli',
         'rjsmin',
         'rcssmin',
