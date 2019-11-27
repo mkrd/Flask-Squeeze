@@ -1,32 +1,27 @@
 # Flask-Squeeze
 
 Flask-Squeeze is a Flask extension that automatically:
-- Minifies your JS and CSS files
-- Compresses all HTTP responses with brotli
-- Cachce static files so that they don't have to be recompressed
+- Minifies your JS and CSS files.
+- Compresses all HTTP responses with brotli.
+- Caches static files so that they don't have to be recompressed. The cache will be cleared each time Flask restarts!
 
 ## Installation
-
-`
-    pip3 install Flask-Squeeze
-`
+```
+pip3 install Flask-Squeeze
+```
 
 ## Usage
+```python
+from flask_squeeze import Squeeze
+squeeze = Squeeze()
 
-`
-pyhton
-
-    from flask_squeeze import Squeeze
-    squeeze = Squeeze()
-
-    # Initialize Extension
-    squeeze.init_app(app)
-`
+# Initialize Extension
+squeeze.init_app(app)
+```
 
 Thats all!
 
 ## Options
-
 You can configure Flask Squeeze with the following options:
 - `COMPRESS_FLAG (default=True)`: Globally enables or disables Flask-Squeeze
 - `COMPRESS_MIN_SIZE (default=500)`: Defines the minimum file size in bytes to activate the brotli compression
