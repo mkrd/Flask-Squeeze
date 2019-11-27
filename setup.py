@@ -2,37 +2,39 @@
 Flask-Squeeze
 -------------
 
-Automatically minify JS/CSS and crompress all responses with brotli, with caching for static assets
+Automatically minify JS/CSS and crompress all responses with brotli, with caching for static assets.
 """
-from setuptools import setup
+import setuptools
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
 
 
-setup(
+setuptools.setup(
     name='Flask-Squeeze',
     version='1.0',
     url='https://github.com/mkrd/flask-squeeze',
     license='MIT License',
     author='Marcel Kröker',
     author_email='kroeker.marcel@gmail.com',
-    description='Very short description',
-    long_description=__doc__,
-    py_modules=['flask_squeeze'],
-    # if you would be using a package instead use packages instead
-    # of py_modules:
-    # packages=['flask_sqlite3'],
-    zip_safe=False,
-    include_package_data=True,
+    description='Compress and minify Flask responses!',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    packages=setuptools.find_packages(),
     platforms='any',
     install_requires=[
-        'Flask'
+        'Flask',
+        'hashlib',
+        'brotli',
+        'rjsmin',
+        'rcssmin',
     ],
     classifiers=[
-        'Environment :: Web Environment',
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: BSD License',
-        'Operating System :: OS Independent',
         'Programming Language :: Python',
-        'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
         'Topic :: Software Development :: Libraries :: Python Modules'
     ]
 )
