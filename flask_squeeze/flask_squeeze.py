@@ -16,7 +16,6 @@ class Squeeze(object):
     def init_app(self, app):
         app.config.setdefault("COMPRESS_MIN_SIZE", 500)
         app.config.setdefault("COMPRESS_FLAG", True)
-        # Do only minimal compression for development purposes
         app.config.setdefault("COMPRESS_LEVEL_STATIC", 11)
         app.config.setdefault("COMPRESS_LEVEL_DYNAMIC", 5)
         if app.config["COMPRESS_FLAG"]:
@@ -24,27 +23,30 @@ class Squeeze(object):
 
 
     def compress(self, response, quality):
-        # 0 <= quality <= 11
+        data = bytes()
         if response.mimetype == "application/javascript":
             data = response.get_data(as_text=True)
             data = jsmin(data, keep_bang_comments=False)
             data = bytes(data, encoding="utf-8")
-            return brotli.compress(data, quality=quality)
-        if response.mimetype == "application/json":
+        elif response.mimetype == "application/json":
             data = response.get_data(as_text=True)
             data = jsmin(data, keep_bang_comments=False)
             data = bytes(data, encoding="utf-8")
-            return brotli.compress(data, quality=quality)
-        if response.mimetype == "text/css":
+        elif response.mimetype == "text/css":
             data = response.get_data(as_text=True)
             data = cssmin(data, keep_bang_comments=False)
             data = bytes(data, encoding="utf-8")
-            return brotli.compress(data, quality=quality)
-        data = response.get_data()
+        else:
+            data = response.get_data()
+        # 0 <= quality <= 11
         return brotli.compress(data, quality=quality)
 
 
-    def retrieve_from_cache(self, app, request, response):
+    def get_and_cache_response(self, app, response):
+        """
+            Only call this function if you also want to cache the response.
+            Dynamically generated pages should not be cached, since the will unnceccesarily fill the cache
+        """
         key = hashlib.md5(response.get_data()).hexdigest()
         if key not in self.cache:
             self.cache[key] = self.compress(response, app.config["COMPRESS_LEVEL_STATIC"])
@@ -67,7 +69,7 @@ class Squeeze(object):
 
         # Only use caching for static files.
         if "/static/" in str(request):
-            cached = self.retrieve_from_cache(app, request, response)
+            cached = self.get_and_cache_response(app, response)
             response.data = cached
         else:
             # For dynamic files, only use compression
