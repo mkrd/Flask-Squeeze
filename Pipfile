@@ -5,12 +5,14 @@ verify_ssl = true
 
 [dev-packages]
 pylint = "*"
+requests = "*"
 
 [packages]
 flask = "*"
 brotli = "*"
 rjsmin = "*"
 rcssmin = "*"
+termcolor = "*"
 
 [requires]
 python_version = "3.7"

@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="Flask-Squeeze",
-    version="1.6",
+    version="1.7",
     url="https://github.com/mkrd/flask-squeeze",
     license="MIT License",
     author="Marcel Kröker",
