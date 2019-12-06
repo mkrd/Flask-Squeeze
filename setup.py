@@ -4,11 +4,15 @@ Flask-Squeeze
 
 Automatically minify JS/CSS and crompress all responses with brotli, with caching for static assets.
 """
+
+# How to publish:
+# python3 setup.py sdist bdist_wheel
+# python3 -m twine upload dist/*
+
 import setuptools
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
-
 
 setuptools.setup(
     name="Flask-Squeeze",
@@ -29,6 +33,7 @@ setuptools.setup(
         "brotli",
         "rjsmin",
         "rcssmin",
+        "termcolor",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
