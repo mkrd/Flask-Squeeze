@@ -110,7 +110,9 @@ class Squeeze(object):
 			data = cssmin(data, keep_bang_comments=False).encode("utf-8")
 		else:
 			data = response.get_data()
-		return brotli.compress(data, quality=quality)
+		compressed = brotli.compress(data, quality=quality)
+		self.log(2, f"Compression ratio: {len(response.data) / len(compressed):.1f}x")
+		return compressed
 
 
 	@splog(level=1)
