@@ -25,5 +25,11 @@ def hello():
     data = datetime.utcnow()
     return render_template("index.html", data=str(data))
 
+
+
+@app.before_request
+def before_request():
+    print("APP before_request")
+
 if __name__ == "__main__":
     app.run()

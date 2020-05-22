@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/Users/marcelkroker/.local/share/virtualenvs/flask-squeeze-biXgNwiU/bin/python",
+    "python.pythonPath": ".venv/bin/python",
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true
 }
