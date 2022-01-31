@@ -1,5 +1,6 @@
 from flask import current_app, request
 import brotli
+import gzip
 from rjsmin import jsmin
 from rcssmin import cssmin
 import functools
@@ -15,7 +16,7 @@ def colored_str_by_color_code(s, color_code):
 
 
 
-class splog:
+class logger:
 	"""
 		decorator for logging.
 		level: indent level
@@ -76,7 +77,7 @@ class Squeeze(object):
 		self.app = app
 		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
 		app.config.setdefault("COMPRESS_FLAG", True)
-		app.config.setdefault("COMPRESS_LEVEL_STATIC", 11)
+		app.config.setdefault("COMPRESS_LEVEL_STATIC", 9)
 		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC", 5)
 		app.config.setdefault("COMPRESS_MINIFY_JS", True)
 		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
@@ -85,17 +86,17 @@ class Squeeze(object):
 			app.after_request(self.after_request)
 
 
-	@splog(level=1, with_args=[1])
+	@logger(level=1, with_args=[1])
 	def get_from_cache(self, key):
 		return self.cache[key]
 
 
-	@splog(level=1, with_args=[1])
+	@logger(level=1, with_args=[1])
 	def insert_to_cache(self, key, value):
 		self.cache[key] = value
 
 
-	@splog(level=1, with_args=[1, 2], with_kwargs=["quality"])
+	@logger(level=1, with_args=[1, 2], with_kwargs=["quality"])
 	def compress(self, response, quality: int = 6) -> bytes:
 		"""
 			For a given response, return its contents
@@ -110,16 +111,19 @@ class Squeeze(object):
 			data = cssmin(data, keep_bang_comments=False).encode("utf-8")
 		else:
 			data = response.get_data()
-		compressed = brotli.compress(data, quality=quality)
+
+		if self.compression_type == "br":
+			compressed = brotli.compress(data, quality=quality)
+		elif self.compression_type == "gzip":
+			compressed = gzip.compress(data, compresslevel=quality)
 		self.log(2, f"Compression ratio: {len(response.data) / len(compressed):.1f}x")
 		return compressed
 
 
-	@splog(level=1)
+	@logger(level=1)
 	def recompute_headers(self, response):
 
-		response.headers["Content-Encoding"] = "br"
-		response.headers["X-Uncompressed-Content-Length"] = response.content_length
+		response.headers["Content-Encoding"] = self.compression_type
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
 		vary = set([s.strip() for s in response.headers.get("Vary", "").split(",")])
@@ -128,37 +132,52 @@ class Squeeze(object):
 		response.headers["Vary"] = ",".join(vary)
 
 
-	@splog(level=0, with_args=[1])
+	@logger(level=0, with_args=[1])
 	def after_request(self, response):
 		self.log(0, f"after_request called with response: {response}")
+
+		# Exit if status code is not ok
 		if response.status_code < 200 or response.status_code >= 300:
 			self.log(1, "Response status code is not ok. RETURN")
 			return response
-		if "br" not in request.headers.get("Accept-Encoding", "").lower():
-			self.log(1, "Requester does not accept Brotli encoded responses. RETURN")
-			return response
+
+		# Exit if response size is below threshold
 		if response.content_length < self.app.config["COMPRESS_MIN_SIZE"]:
 			self.log(1, "Response size is smaller than the defined minimum. RETURN")
 			return response
+
+		# Exit if response already has a content encoding
 		if "Content-Encoding" in response.headers:
 			self.log(1, "Response already encoded. RETURN")
 			return response
 
+		accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
+		accept_br = "br" in accepted_encodings
+		accept_gzip = "gzip" in accepted_encodings
+
+		# Exit if neither gzip nor br are accepted
+		if not accept_br and not accept_gzip:
+			self.log(1, "Requester does not accept Brotli or GZIP encoded responses. RETURN")
+			return response
+
+		# br of gzip or both are supported
+		self.compression_type = "br" if accept_br else "gzip"
+
+		# Stop direct passthrough  and set custtom headers
 		response.direct_passthrough = False
+		response.headers["X-Uncompressed-Content-Length"] = response.content_length
 
-
+		# Compress the response, cache if static
 		if "/static/" in request.path:
-			# Only use caching for static files.
-			self.log(1, "static resource")
+			self.log(1, "Static resource. Return from cache if already cached")
 			if request.path not in self.cache:
 				compressed = self.compress(response, quality=self.app.config["COMPRESS_LEVEL_STATIC"])
 				self.insert_to_cache(request.path, compressed)
 			response.data = self.get_from_cache(request.path)
 		else:
-			# For dynamic files, only use compression
-			self.log(1, "dynamic resource")
-			squeezed = self.compress(response, self.app.config["COMPRESS_LEVEL_DYNAMIC"])
-			response.data = squeezed
+			self.log(1, "Dynamic resource. Compress and return without caching")
+			compressed = self.compress(response, self.app.config["COMPRESS_LEVEL_DYNAMIC"])
+			response.data = compressed
 
 		self.recompute_headers(response)
 		return response
