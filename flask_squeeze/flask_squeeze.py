@@ -117,7 +117,9 @@ class Squeeze(object):
 
 	@splog(level=1)
 	def recompute_headers(self, response):
+
 		response.headers["Content-Encoding"] = "br"
+		response.headers["X-Uncompressed-Content-Length"] = response.content_length
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
 		vary = set([s.strip() for s in response.headers.get("Vary", "").split(",")])
