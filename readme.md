@@ -26,7 +26,7 @@ squeeze.init_app(app)
 Thats all!
 
 ## Options
-You can configure Flask-Squeeze with the following options in your Flask config:
+You can configure Flask-Squeeze with the following options in your [Flask config](https://flask.palletsprojects.com/en/latest/config/):
 - `COMPRESS_FLAG (default=True)`: Globally enables or disables Flask-Squeeze
 - `COMPRESS_MIN_SIZE (default=500)`: Defines the minimum file size in bytes to activate the brotli compression
 - `COMPRESS_LEVEL_STATIC (default=11)`: Possible value are 0 (lowest) to 11 (highest). Defines the compression level of brotli for files in static folders. Theses files fill also be cached, so that they only have to be compressed once.
