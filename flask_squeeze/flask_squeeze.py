@@ -122,7 +122,6 @@ class Squeeze(object):
 
 	@logger(level=1)
 	def recompute_headers(self, response):
-
 		response.headers["Content-Encoding"] = self.compression_type
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
