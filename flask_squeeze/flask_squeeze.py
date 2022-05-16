@@ -25,10 +25,10 @@ class logger:
 	"""
 
 
-	def __init__(self, level=0, with_args=[], with_kwargs=[]):
+	def __init__(self, level=0, with_args=None, with_kwargs=None):
 		self.level = level
-		self.with_args = with_args
-		self.with_kwargs = with_kwargs
+		self.with_args = with_args if with_args is not None else []
+		self.with_kwargs = with_kwargs if with_kwargs is not None else []
 
 
 	def __call__(self, method):
@@ -60,7 +60,7 @@ class Squeeze(object):
 	def log(self, level, s):
 		if self.app.config["COMPRESS_VERBOSE_LOGGING"]:
 			tabs = level * "    "
-			log = colored_str_by_color_code("Flask-Squeeze: " + request.path + " - " + tabs + s, 96)
+			log = colored_str_by_color_code(f"Flask-Squeeze: {request.path} - {tabs}{s}", 96)
 			print(log)
 
 
@@ -125,7 +125,7 @@ class Squeeze(object):
 		response.headers["Content-Encoding"] = self.compression_type
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
-		vary = set([s.strip() for s in response.headers.get("Vary", "").split(",")])
+		vary = {s.strip() for s in response.headers.get("Vary", "").split(",")}
 		vary.update(["Content-Encoding", "Content-Length"])
 		vary.remove("")
 		response.headers["Vary"] = ",".join(vary)
