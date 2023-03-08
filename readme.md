@@ -1,8 +1,6 @@
 # Flask-Squeeze
 
 [![Downloads](https://pepy.tech/badge/flask-squeeze)](https://pepy.tech/project/flask-squeeze)
-[![Downloads](https://pepy.tech/badge/flask-squeeze/month)](https://pepy.tech/project/flask-squeeze/month)
-[![Downloads](https://pepy.tech/badge/flask-squeeze/week)](https://pepy.tech/project/flask-squeeze/week)
 
 Flask-Squeeze is a Flask extension that automatically:
 - Minifies JS and CSS responses.
