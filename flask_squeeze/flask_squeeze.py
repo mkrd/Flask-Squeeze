@@ -1,4 +1,4 @@
-from flask import Flask, Response, current_app, request
+from flask import Flask, Response, Request, current_app, request
 import gzip
 import brotli
 from rjsmin import jsmin
@@ -8,9 +8,13 @@ import time
 
 
 
-def format_log(message, level, request, color_code):
+def format_log(
+	message: str,
+	level: int,
+	request: Request,
+	color_code: int,
+) -> str:
 	log = f"Flask-Squeeze: {request.method} {request.path} -> {4 * level * ' '}{message}"
-
 	# ANSI escape code for color
 	res = "\033["
 	res += f"{color_code}m{log}"
@@ -58,7 +62,7 @@ class logger:
 class Squeeze(object):
 
 
-	def log(self, level: int, s: str):
+	def log(self, level: int, s: str) -> None:
 		if self.app.config["COMPRESS_VERBOSE_LOGGING"]:
 			print(format_log(s, level, request, 92))
 
@@ -71,7 +75,7 @@ class Squeeze(object):
 			self.init_app(app)
 
 
-	def init_app(self, app: Flask):
+	def init_app(self, app: Flask) -> None:
 		""" Initialize Flask-Squeeze with app """
 		self.app = app
 		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
@@ -118,12 +122,14 @@ class Squeeze(object):
 				quality = self.app.config["COMPRESS_LEVEL_BROTLI_STATIC"]
 			else:
 				quality = self.app.config["COMPRESS_LEVEL_BROTLI_DYNAMIC"]
+			self.log(2, f"Compressing with brotli, quality {quality}.")
 			compressed = brotli.compress(data, quality=quality)
 		elif compression_method == "gzip":
 			if compression_type == "static":
 				quality = self.app.config["COMPRESS_LEVEL_GZIP_STATIC"]
 			else:
 				quality = self.app.config["COMPRESS_LEVEL_GZIP_DYNAMIC"]
+			self.log(2, f"Compressing with gzip, quality {quality}.")
 			compressed = gzip.compress(data, compresslevel=quality)
 		else:
 			raise ValueError(f"Unsupported compression type {compression_method}. Must be 'br' or 'gzip'.")
