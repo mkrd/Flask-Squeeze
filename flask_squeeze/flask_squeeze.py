@@ -1,6 +1,6 @@
-from flask import current_app, request
-import brotli
+from flask import Flask, Response, current_app, request
 import gzip
+import brotli
 from rjsmin import jsmin
 from rcssmin import cssmin
 import functools
@@ -8,9 +8,12 @@ import time
 
 
 
-def colored_str_by_color_code(s, color_code):
+def format_log(message, level, request, color_code):
+	log = f"Flask-Squeeze: {request.method} {request.path} -> {4 * level * ' '}{message}"
+
+	# ANSI escape code for color
 	res = "\033["
-	res += f"{color_code}m{s}"
+	res += f"{color_code}m{log}"
 	res += "\033[0m"
 	return res
 
@@ -37,18 +40,16 @@ class logger:
 			if not current_app.config["COMPRESS_VERBOSE_LOGGING"]:
 				return method(*args, **kwargs)
 
-			t1 = time.time()
+			t1 = time.perf_counter()
 			res = method(*args, **kwargs)
-			t2 = time.time()
+			t2 = time.perf_counter()
 
 			ms = f"{((t2 - t1) * 1000):.1f}ms"
-			log = f"Flask-Squeeze: {request.path} - {self.level * '    '}{method.__name__}"
-
 			arglist = [f"{a}" for i, a in enumerate(args) if i in self.with_args]
 			kwarglist = [f"{k}={a}" for k, a in kwargs.items() if k in self.with_kwargs]
-			log += "(" + ", ".join(arglist + kwarglist) + ")" + " - " + ms
+			log = f"{method.__name__}({', '.join(arglist + kwarglist)}) - {ms}"
+			print(format_log(log, self.level, request, 96))
 
-			print(colored_str_by_color_code(log, 96))
 			return res
 		return wrapper
 
@@ -57,14 +58,12 @@ class logger:
 class Squeeze(object):
 
 
-	def log(self, level, s):
+	def log(self, level: int, s: str):
 		if self.app.config["COMPRESS_VERBOSE_LOGGING"]:
-			tabs = level * "    "
-			log = colored_str_by_color_code(f"Flask-Squeeze: {request.path} - {tabs}{s}", 96)
-			print(log)
+			print(format_log(s, level, request, 92))
 
 
-	def __init__(self, app=None):
+	def __init__(self, app: Flask = None):
 		""" Initialize Flask-Squeeze with or without app. """
 		self.cache = {}
 		self.app = app
@@ -72,13 +71,15 @@ class Squeeze(object):
 			self.init_app(app)
 
 
-	def init_app(self, app):
+	def init_app(self, app: Flask):
 		""" Initialize Flask-Squeeze with app """
 		self.app = app
 		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
 		app.config.setdefault("COMPRESS_FLAG", True)
-		app.config.setdefault("COMPRESS_LEVEL_STATIC", 9)
-		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC", 5)
+		app.config.setdefault("COMPRESS_LEVEL_STATIC_FOR_GZIP", 9)
+		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC_FOR_GZIP", 1)
+		app.config.setdefault("COMPRESS_LEVEL_STATIC_FOR_BROTLI", 11)
+		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC_FOR_BROTLY", 1)
 		app.config.setdefault("COMPRESS_MINIFY_JS", True)
 		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
 		app.config.setdefault("COMPRESS_VERBOSE_LOGGING", False)
@@ -97,11 +98,11 @@ class Squeeze(object):
 
 
 	@logger(level=1, with_args=[1, 2], with_kwargs=["quality"])
-	def compress(self, response, quality: int = 6) -> bytes:
+	def compress(self, response: Response, quality: int = 6) -> bytes:
 		"""
 			For a given response, return its contents
 			as a brotli compressed bytes object.
-			quality can be 0-11.
+			quality can be 0-11 for brotli, 0-9 for gzip.
 		"""
 		if response.mimetype in ["application/javascript", "application/json"] and self.app.config["COMPRESS_MINIFY_JS"]:
 			data = response.get_data(as_text=True)
@@ -121,7 +122,7 @@ class Squeeze(object):
 
 
 	@logger(level=1)
-	def recompute_headers(self, response):
+	def recompute_headers(self, response: Response):
 		response.headers["Content-Encoding"] = self.compression_type
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
@@ -132,8 +133,8 @@ class Squeeze(object):
 
 
 	@logger(level=0, with_args=[1])
-	def after_request(self, response):
-		self.log(0, f"after_request called with response: {response}")
+	def after_request(self, response: Response):
+		self.log(0, f"Enter after_request({response})")
 
 		# Exit if status code is not ok
 		if response.status_code < 200 or response.status_code >= 300:
@@ -159,7 +160,7 @@ class Squeeze(object):
 			self.log(1, "Requester does not accept Brotli or GZIP encoded responses. RETURN")
 			return response
 
-		# br of gzip or both are supported
+		# br or gzip or both are supported
 		self.compression_type = "br" if accept_br else "gzip"
 
 		# Stop direct passthrough  and set custtom headers
@@ -174,7 +175,7 @@ class Squeeze(object):
 				self.insert_to_cache(request.path, compressed)
 			response.data = self.get_from_cache(request.path)
 		else:
-			self.log(1, "Dynamic resource. Compress and return without caching")
+			self.log(1, f"Dynamic resource. Compress using {self.compression_type} and return without caching")
 			compressed = self.compress(response, self.app.config["COMPRESS_LEVEL_DYNAMIC"])
 			response.data = compressed
 
