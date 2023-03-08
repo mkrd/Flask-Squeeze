@@ -17,14 +17,14 @@ classifiers=[
 
 [tool.poetry.dependencies]
 python = "^3.8"
-flask = "^2.0.1"
+flask = "^2.2.3"
 brotli = "^1.0.7"
-rjsmin = "^1.1.0"
-rcssmin = "^1.0.6"
+rjsmin = "^1.2.1"
+rcssmin = "^1.1.1"
 
 [tool.poetry.dev-dependencies]
-pycodestyle = "^2.8.0"
-pytest-cov = "^3.0.0"
+pycodestyle = "^2.10.0"
+pytest-cov = "^4.0.0"
 
 [build-system]
 requires = ["poetry>=0.12"]
