@@ -76,10 +76,10 @@ class Squeeze(object):
 		self.app = app
 		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
 		app.config.setdefault("COMPRESS_FLAG", True)
-		app.config.setdefault("COMPRESS_LEVEL_STATIC_FOR_GZIP", 9)
-		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC_FOR_GZIP", 1)
-		app.config.setdefault("COMPRESS_LEVEL_STATIC_FOR_BROTLI", 11)
-		app.config.setdefault("COMPRESS_LEVEL_DYNAMIC_FOR_BROTLY", 1)
+		app.config.setdefault("COMPRESS_LEVEL_GZIP_STATIC", 9)
+		app.config.setdefault("COMPRESS_LEVEL_GZIP_DYNAMIC", 1)
+		app.config.setdefault("COMPRESS_LEVEL_BROTLI_STATIC", 11)
+		app.config.setdefault("COMPRESS_LEVEL_BROTLI_DYNAMIC", 1)
 		app.config.setdefault("COMPRESS_MINIFY_JS", True)
 		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
 		app.config.setdefault("COMPRESS_VERBOSE_LOGGING", False)
@@ -97,8 +97,8 @@ class Squeeze(object):
 		self.cache[key] = value
 
 
-	@logger(level=1, with_args=[1, 2], with_kwargs=["quality"])
-	def compress(self, response: Response, quality: int = 6) -> bytes:
+	@logger(level=1, with_args=[1, 2, 3])
+	def compress(self, response: Response, compression_method: str, compression_type: str) -> bytes:
 		"""
 			For a given response, return its contents
 			as a brotli compressed bytes object.
@@ -111,19 +111,29 @@ class Squeeze(object):
 			data = response.get_data(as_text=True)
 			data = cssmin(data, keep_bang_comments=False).encode("utf-8")
 		else:
-			data = response.get_data()
+			data = response.get_data(as_text=False)
 
-		if self.compression_type == "br":
+		if compression_method == "br":
+			if compression_type == "static":
+				quality = self.app.config["COMPRESS_LEVEL_BROTLI_STATIC"]
+			else:
+				quality = self.app.config["COMPRESS_LEVEL_BROTLI_DYNAMIC"]
 			compressed = brotli.compress(data, quality=quality)
-		elif self.compression_type == "gzip":
+		elif compression_method == "gzip":
+			if compression_type == "static":
+				quality = self.app.config["COMPRESS_LEVEL_GZIP_STATIC"]
+			else:
+				quality = self.app.config["COMPRESS_LEVEL_GZIP_DYNAMIC"]
 			compressed = gzip.compress(data, compresslevel=quality)
+		else:
+			raise ValueError(f"Unsupported compression type {compression_method}. Must be 'br' or 'gzip'.")
 		self.log(2, f"Compression ratio: {len(response.data) / len(compressed):.1f}x")
 		return compressed
 
 
 	@logger(level=1)
-	def recompute_headers(self, response: Response):
-		response.headers["Content-Encoding"] = self.compression_type
+	def recompute_headers(self, response: Response, compression_type: str):
+		response.headers["Content-Encoding"] = compression_type
 		response.headers["Content-Length"] = response.content_length
 		# Vary defines which headers have to change for the cached version to become invalid
 		vary = {s.strip() for s in response.headers.get("Vary", "").split(",")}
@@ -136,32 +146,28 @@ class Squeeze(object):
 	def after_request(self, response: Response):
 		self.log(0, f"Enter after_request({response})")
 
-		# Exit if status code is not ok
+		accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
+		compression_type = None
+		if "gzip" in accepted_encodings:
+			compression_type = "gzip"
+		if "br" in accepted_encodings:
+			compression_type = "br"
+
+		if compression_type is None:
+			self.log(1, "Requester does not accept Brotli or GZIP encoded responses. RETURN")
+			return response
 		if response.status_code < 200 or response.status_code >= 300:
 			self.log(1, "Response status code is not ok. RETURN")
 			return response
-
-		# Exit if response size is below threshold
 		if response.content_length < self.app.config["COMPRESS_MIN_SIZE"]:
 			self.log(1, "Response size is smaller than the defined minimum. RETURN")
 			return response
-
-		# Exit if response already has a content encoding
 		if "Content-Encoding" in response.headers:
 			self.log(1, "Response already encoded. RETURN")
 			return response
 
-		accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
-		accept_br = "br" in accepted_encodings
-		accept_gzip = "gzip" in accepted_encodings
-
-		# Exit if neither gzip nor br are accepted
-		if not accept_br and not accept_gzip:
-			self.log(1, "Requester does not accept Brotli or GZIP encoded responses. RETURN")
-			return response
-
-		# br or gzip or both are supported
-		self.compression_type = "br" if accept_br else "gzip"
+		# Assert: The requester accepts gzip or br, the response is ok, the response
+		# size is above threshold, and the response is not already encoded
 
 		# Stop direct passthrough  and set custtom headers
 		response.direct_passthrough = False
@@ -171,13 +177,12 @@ class Squeeze(object):
 		if "/static/" in request.path:
 			self.log(1, "Static resource. Return from cache if already cached")
 			if request.path not in self.cache:
-				compressed = self.compress(response, quality=self.app.config["COMPRESS_LEVEL_STATIC"])
+				compressed = self.compress(response, compression_type, "static")
 				self.insert_to_cache(request.path, compressed)
 			response.data = self.get_from_cache(request.path)
 		else:
-			self.log(1, f"Dynamic resource. Compress using {self.compression_type} and return without caching")
-			compressed = self.compress(response, self.app.config["COMPRESS_LEVEL_DYNAMIC"])
-			response.data = compressed
+			self.log(1, f"Dynamic resource. Compress using {compression_type} and return without caching")
+			response.data = self.compress(response, compression_type, "dynamic")
 
-		self.recompute_headers(response)
+		self.recompute_headers(response, compression_type)
 		return response
