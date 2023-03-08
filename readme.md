@@ -33,10 +33,10 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 
 ### Compression level options
 
+> Static files are chached, so they only have to be compressed once.
+> Dynamic files like generated HTML files will not be cached, so they will be compressed for each response.
+
 - `COMPRESS_LEVEL_BROTLI_STATIC (default=11, min=0 , max=11)`: Defines the compression level of brotli for static files.
 - `COMPRESS_LEVEL_BROTLI_DYNAMIC (default=1, min=0, max=11)`: Defines the compression level of brotli for dynamic files.
 - `COMPRESS_LEVEL_GZIP_STATIC (default=11, min=0 , max=9)`: Defines the compression level of gzip for static files.
 - `COMPRESS_LEVEL_GZIP_DYNAMIC (default=1, min=0, max=9)`:  Defines the compression level of gzip for dynamic files.
-
-> Static files are chached, so they only have to be compressed once.
-> Dynamic files like generated HTML files will not be cached, so they will be compressed for each response.
