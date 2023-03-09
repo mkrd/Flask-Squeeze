@@ -1,0 +1,100 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+
+  # JOB
+  tests-job:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+
+    steps:
+      #----------------------------------------------
+      #---- Checkout and install poetry and python
+      #----------------------------------------------
+
+      - uses: actions/checkout@v3
+      - name: Install poetry
+        run: pipx install poetry
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'poetry'
+
+      #----------------------------------------------
+      #---- install dependencies
+      #----------------------------------------------
+
+      - name: poetry install
+        run: poetry install
+
+      #----------------------------------------------
+      #---- show installation details
+      #----------------------------------------------
+
+      - name: poetry --version
+        run: poetry --version
+      - name: python --version in venv
+        run: poetry run python --version
+      - name: ls -lah
+        run: ls -lah
+      - name: poetry show
+        run: poetry show
+
+      #----------------------------------------------
+      #---- Tests
+      #----------------------------------------------
+
+      - name: 🚀 Run tests with code coverage report
+        run: poetry run pytest --cov=flask_squeeze --cov-report term-missing
+
+      #----------------------------------------------
+      #---- Save coverage artifact
+      #----------------------------------------------
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage
+          path: .coverage
+
+  # JOB
+  cov-badge-job:
+    needs: tests-job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      #----------------------------------------------
+      #---- Coverage badge
+      #----------------------------------------------
+      - name: ls-lah
+        run: ls -lah
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: coverage
+
+      - name: GenerateCoverage Badge
+        uses: tj-actions/coverage-badge-py@v1.8
+        with:
+          output: assets/coverage.svg
+
+      - name: Verify Changed files
+        uses: tj-actions/verify-changed-files@v13
+        id: changed_files
+        with:
+          files: assets/coverage.svg
+
+      - name: Commit files
+        if: steps.changed_files.outputs.files_changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add assets/coverage.svg
+          git commit -m "Updated assets/coverage.svg"
+      - name: Push changes
+        if: steps.changed_files.outputs.files_changed == 'true'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.github_token }}
+          branch: ${{ github.ref }}
