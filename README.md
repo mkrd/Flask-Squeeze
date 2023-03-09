@@ -1,7 +1,7 @@
 # Flask-Squeeze
 
 [![Downloads](https://pepy.tech/badge/flask-squeeze)](https://pepy.tech/project/flask-squeeze)
-![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/main/assets/coverage.svg?raw=1)
+![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/master/assets/coverage.svg?raw=1)
 
 Flask-Squeeze is a Flask extension that automatically:
 - **Minifies** repsonses with the mimetypes javascript and css
