@@ -16,6 +16,7 @@ def create_app(test_config=None):
 		SECRET_KEY="dev",
 		COMPRESS_MIN_SIZE=0,
 		COMPRESS_VERBOSE_LOGGING=True,
+		COMPRESS_MINIFY_JS=True,
 	)
 
 	squeeze.init_app(app)
