@@ -1,4 +1,4 @@
-# Flask-Squeeze
+![Logo](https://github.com/mkrd/Flask-Squeeze/blob/master/assets/logo.png?raw=true)
 
 [![Downloads](https://pepy.tech/badge/flask-squeeze)](https://pepy.tech/project/flask-squeeze)
 ![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/master/assets/coverage.svg?raw=1)
