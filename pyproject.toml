@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flask-squeeze"
-version = "2.0.1"
+version = "2.0.2"
 repository = "https://github.com/mkrd/Flask-Squeeze"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
