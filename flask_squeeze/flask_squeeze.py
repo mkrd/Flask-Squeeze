@@ -9,6 +9,7 @@ from rjsmin import jsmin
 from rcssmin import cssmin
 
 
+
 def format_log(
 	message: str,
 	level: int,
@@ -70,6 +71,14 @@ def get_requested_encoding(request: Request) -> str:
 	return "none"
 
 
+def is_js_minifiable(mimetype: str) -> bool:
+	return mimetype.endswith("javascript") or mimetype.endswith("json")
+
+
+def is_css_minifiable(mimetype: str) -> bool:
+	return mimetype.endswith("css")
+
+
 
 class Squeeze(object):
 	cache: Dict[Tuple[str, str, bool], bytes]  # keys are (request.path, encoding, is_minified)
@@ -121,10 +130,9 @@ class Squeeze(object):
 			self.log(2, "Minifying javascript is disabled. EXIT.")
 			return False
 
-		if response.mimetype not in ["application/javascript", "application/json"]:
+		if not is_js_minifiable(response.mimetype):
 			self.log(3, f"MimeType is not js or json but {response.mimetype}. EXIT.")
 			return False
-
 
 		response.direct_passthrough = False
 		data = response.get_data(as_text=True)
@@ -140,7 +148,7 @@ class Squeeze(object):
 			self.log(3, "Minifying css is disabled. EXIT.")
 			return False
 
-		if response.mimetype not in ["text/css"]:
+		if not is_css_minifiable(response.mimetype):
 			self.log(3, f"MimeType is not css but {response.mimetype}. EXIT.")
 			return False
 
@@ -233,7 +241,7 @@ class Squeeze(object):
 
 		# Compress the response, cache if static
 		minify = False
-		if response.mimetype in ["text/css", "application/javascript", "application/json"]:
+		if is_js_minifiable(response.mimetype) or is_css_minifiable(response.mimetype):
 			minify = self.app.config["COMPRESS_MINIFY_JS"] or self.app.config["COMPRESS_MINIFY_CSS"]
 
 		if (from_cache := self.get_from_cache(request.path, encoding, minify)) is not None:
