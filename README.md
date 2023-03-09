@@ -17,12 +17,18 @@ pip install Flask-Squeeze
 ```
 
 ## Usage
+Initialize Flask-Squeeze **BEFORE** all other extensions and after_request handlers! Flask executes after_request handlers in reverse order of declaration, and the compression should be the last step before sending the response.
 ```python
 from flask_squeeze import Squeeze
 squeeze = Squeeze()
 
-# Initialize Extension
-squeeze.init_app(app)
+def create_app():
+    app = Flask(__name__)
+    squeeze.init_app(app)
+    # Init all other extensions AFTER Flask-Squeeze
+    # ...
+
+    return app
 ```
 
 Thats it! The responses of your Flask app will now get minified and compressed, if the browser supports it.
