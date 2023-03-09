@@ -81,10 +81,10 @@ def test_get_jquery_no_minify(client: FlaskClient):
 
 
 def test_get_jquery_with_minify(client: FlaskClient):
+    print("test_get_jquery_with_minify")
     client.application.config.update({"COMPRESS_MINIFY_JS": True})
     r_orig = client.get('/static/jquery.js', headers={})
     assert "Content-Encoding" not in r_orig.headers
     print(r_orig.headers["Content-Length"])
     assert r_orig.headers["Content-Length"] == "144649"
     assert r_orig.headers["X-Uncompressed-Content-Length"] == "292458"
-    r2 = client.get('/static/jquery.js')
