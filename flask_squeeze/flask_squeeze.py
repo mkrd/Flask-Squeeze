@@ -271,7 +271,7 @@ class Squeeze(object):
 			return response
 
 		# Assert: The response is ok, the size is above threshold, and the response is
-		# not already encoded
+		# not already encoded.
 
 		encoding = get_requested_encoding(request)
 		original_content_length = response.content_length
