@@ -209,6 +209,7 @@ class Squeeze(object):
 			vary = response.headers.get("Vary", "")
 			vary = {s.strip() for s in vary.split(",")}
 			vary.update(update_vary)
+			vary.discard("")
 			response.headers["Vary"] = ", ".join(vary)
 
 
