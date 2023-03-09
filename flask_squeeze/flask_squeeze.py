@@ -3,6 +3,8 @@ import gzip
 import time
 import functools
 import zlib
+import secrets
+import random
 
 from flask import Flask, Response, Request, current_app, request
 import brotli
@@ -247,7 +249,13 @@ class Squeeze(object):
 
 		self.minify_if_css(response)
 		self.minify_if_js(response)
-		self.compress(response, encoding, "dynamic")
+		was_compressed = self.compress(response, encoding, "dynamic")
+		# Protect against BREACH attack
+		if was_compressed:
+			tx = 2 if time.time() % 2 else 1
+			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
+			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
+
 
 
 	@logger(level=1)
