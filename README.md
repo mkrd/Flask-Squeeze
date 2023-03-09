@@ -25,7 +25,8 @@ squeeze = Squeeze()
 squeeze.init_app(app)
 ```
 
-Thats all!
+Thats it! The responses of your Flask app will now get minified and compressed, if the browser supports it.
+To control how Flask-Squeeze behaves, the following options exist:
 
 ### General options
 You can configure Flask-Squeeze with the following options in your [Flask config](https://flask.palletsprojects.com/en/latest/config/):
