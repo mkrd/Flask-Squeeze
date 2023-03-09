@@ -252,7 +252,7 @@ class Squeeze(object):
 		was_compressed = self.compress(response, encoding, "dynamic")
 		# Protect against BREACH attack
 		if was_compressed:
-			tx = 2 if time.time() % 2 else 1
+			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
 			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
 			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
 
