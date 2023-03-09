@@ -1,12 +1,12 @@
-from flask import Flask, Response, Request, current_app, request
+from typing import Tuple, Dict
 import gzip
+import time
+import functools
+
+from flask import Flask, Response, Request, current_app, request
 import brotli
 from rjsmin import jsmin
 from rcssmin import cssmin
-import functools
-import time
-
-import sys
 
 
 def format_log(
@@ -72,7 +72,7 @@ def get_requested_encoding(request: Request) -> str:
 
 
 class Squeeze(object):
-	cache: dict[tuple[str, str, bool], bytes]  # keys are (request.path, encoding, is_minified)
+	cache: Dict[Tuple[str, str, bool], bytes]  # keys are (request.path, encoding, is_minified)
 	app: Flask
 
 
@@ -286,5 +286,4 @@ class Squeeze(object):
 		self.recompute_headers(response, encoding, original_content_length)
 
 		self.log(0, f"cache keys: {self.cache.keys()}")
-		self.log(0, f"cache size: {sys.getsizeof(self.cache)}")
 		return response
