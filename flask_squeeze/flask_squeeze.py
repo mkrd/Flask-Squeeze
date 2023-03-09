@@ -76,11 +76,11 @@ def get_requested_encoding(request: Request) -> str:
 	return "none"
 
 
-def is_js_minifiable(mimetype: str) -> bool:
+def is_js(mimetype: str) -> bool:
 	return mimetype.endswith("javascript") or mimetype.endswith("json")
 
 
-def is_css_minifiable(mimetype: str) -> bool:
+def is_css(mimetype: str) -> bool:
 	return mimetype.endswith("css")
 
 
@@ -140,7 +140,7 @@ class Squeeze(object):
 			self.log(2, "Minifying javascript is disabled. EXIT.")
 			return False
 
-		if not is_js_minifiable(response.mimetype):
+		if not is_js(response.mimetype):
 			self.log(3, f"MimeType is not js or json but {response.mimetype}. EXIT.")
 			return False
 
@@ -158,7 +158,7 @@ class Squeeze(object):
 			self.log(3, "Minifying css is disabled. EXIT.")
 			return False
 
-		if not is_css_minifiable(response.mimetype):
+		if not is_css(response.mimetype):
 			self.log(3, f"MimeType is not css but {response.mimetype}. EXIT.")
 			return False
 
@@ -264,10 +264,9 @@ class Squeeze(object):
 			Compress a static resource.
 		"""
 
-		# Compress the response, cache if static
-		minify = False
-		if is_js_minifiable(response.mimetype) or is_css_minifiable(response.mimetype):
-			minify = self.app.config["COMPRESS_MINIFY_JS"] or self.app.config["COMPRESS_MINIFY_CSS"]
+		m_css = is_css(response.mimetype) and self.app.config["COMPRESS_MINIFY_CSS"]
+		m_js = is_js(response.mimetype) and self.app.config["COMPRESS_MINIFY_JS"]
+		minify = m_css or m_js
 
 		if (from_cache := self.get_from_cache(request.path, encoding, minify)) is not None:
 			self.log(1, "Found in cache. RETURN")
