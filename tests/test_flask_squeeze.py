@@ -32,6 +32,14 @@ def test_get_brotli(client: FlaskClient):
     assert r.headers["X-Uncompressed-Content-Length"] == "3955741"
 
 
+def test_get_deflate(client: FlaskClient):
+    print("Using deflate:")
+    r = client.get('/', headers={'Accept-Encoding': 'deflate'})
+    assert r.headers["Content-Encoding"] == "deflate"
+    assert r.headers["X-Uncompressed-Content-Length"] == "3955741"
+
+
+
 def test_get_brotli_and_gzip(client: FlaskClient):
     print("Using brotli and gzip:")
     r = client.get('/', headers={'Accept-Encoding': 'br; gzip'})

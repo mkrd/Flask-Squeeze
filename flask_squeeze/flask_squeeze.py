@@ -2,6 +2,7 @@ from typing import Tuple, Dict, Union
 import gzip
 import time
 import functools
+import zlib
 
 from flask import Flask, Response, Request, current_app, request
 import brotli
@@ -66,6 +67,8 @@ def get_requested_encoding(request: Request) -> str:
 	accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
 	if "br" in accepted_encodings:
 		return "br"
+	if "deflate" in accepted_encodings:
+		return "deflate"
 	if "gzip" in accepted_encodings:
 		return "gzip"
 	return "none"
@@ -101,14 +104,19 @@ class Squeeze(object):
 	def init_app(self, app: Flask) -> None:
 		""" Initialize Flask-Squeeze with app """
 		self.app = app
-		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
 		app.config.setdefault("COMPRESS_FLAG", True)
+		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
+
 		app.config.setdefault("COMPRESS_LEVEL_GZIP_STATIC", 9)
 		app.config.setdefault("COMPRESS_LEVEL_GZIP_DYNAMIC", 1)
 		app.config.setdefault("COMPRESS_LEVEL_BROTLI_STATIC", 11)
 		app.config.setdefault("COMPRESS_LEVEL_BROTLI_DYNAMIC", 1)
+		app.config.setdefault("COMPRESS_LEVEL_DEFLATE_STATIC", 9)
+		app.config.setdefault("COMPRESS_LEVEL_DEFLATE_DYNAMIC", 1)
+
 		app.config.setdefault("COMPRESS_MINIFY_JS", True)
 		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
+
 		app.config.setdefault("COMPRESS_VERBOSE_LOGGING", False)
 		if app.config["COMPRESS_FLAG"]:
 			app.after_request(self.after_request)
@@ -168,7 +176,7 @@ class Squeeze(object):
 			quality can be 0-11 for brotli, 0-9 for gzip.
 		"""
 
-		if compression_method not in ["br", "gzip"]:
+		if compression_method not in ["br", "gzip", "deflate"]:
 			return False
 
 		response.direct_passthrough = False
@@ -188,6 +196,15 @@ class Squeeze(object):
 				quality = self.app.config["COMPRESS_LEVEL_GZIP_DYNAMIC"]
 			self.log(3, f"Compressing with gzip, quality {quality}.")
 			compressed = gzip.compress(data, compresslevel=quality)
+		elif compression_method == "deflate":
+			self.log(3, "Compressing with deflate.")
+			if compression_type == "static":
+				quality = self.app.config["COMPRESS_LEVEL_DEFLATE_STATIC"]
+			else:
+				quality = self.app.config["COMPRESS_LEVEL_DEFLATE_DYNAMIC"]
+
+			compressed = zlib.compress(data, level=quality)
+
 
 		self.log(3, f"Compression ratio: {len(response.data) / len(compressed):.1f}x")
 		response.set_data(compressed)
