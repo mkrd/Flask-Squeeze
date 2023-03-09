@@ -1,4 +1,4 @@
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Union
 import gzip
 import time
 import functools
@@ -115,7 +115,7 @@ class Squeeze(object):
 
 
 	@logger(level=2, with_args=[1, 2, 3])
-	def get_from_cache(self, request_path: str, encoding: str, is_minified: bool) -> bytes | None:
+	def get_from_cache(self, request_path: str, encoding: str, is_minified: bool) -> Union[bytes, None]:
 		return self.cache.get((request_path, encoding, is_minified), None)
 
 
