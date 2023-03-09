@@ -122,7 +122,7 @@ class Squeeze(object):
 			return False
 
 		if response.mimetype not in ["application/javascript", "application/json"]:
-			self.log(2, "MimeType is not javascript or json. EXIT.")
+			self.log(3, f"MimeType is not js or json but {response.mimetype}. EXIT.")
 			return False
 
 
@@ -141,7 +141,7 @@ class Squeeze(object):
 			return False
 
 		if response.mimetype not in ["text/css"]:
-			self.log(3, "MimeType is not css. EXIT.")
+			self.log(3, f"MimeType is not css but {response.mimetype}. EXIT.")
 			return False
 
 		response.direct_passthrough = False
