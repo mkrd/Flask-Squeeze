@@ -39,7 +39,8 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 
 - `COMPRESS_LEVEL_BROTLI_STATIC (default=11, min=0 , max=11)`: Defines the compression level of brotli for static files.
 - `COMPRESS_LEVEL_BROTLI_DYNAMIC (default=1, min=0, max=11)`: Defines the compression level of brotli for dynamic files.
+- `COMPRESS_LEVEL_DEFLATE_STATIC (default=9, min=-1 , max=9)`: Defines the compression level of deflate for static files.
+- `COMPRESS_LEVEL_DEFLATE_DYNAMIC (default=1, min=-1, max=9)`:  Defines the compression level of deflate for dynamic files.
 - `COMPRESS_LEVEL_GZIP_STATIC (default=9, min=0 , max=9)`: Defines the compression level of gzip for static files.
 - `COMPRESS_LEVEL_GZIP_DYNAMIC (default=1, min=0, max=9)`:  Defines the compression level of gzip for dynamic files.
-- `COMPRESS_LEVEL_DEFLATE_STATIC (default=9, min=-1 , max=9)`: Defines the compression level of gzip for static files.
-- `COMPRESS_LEVEL_DEFLATE_DYNAMIC (default=1, min=-1, max=9)`:  Defines the compression level of gzip for dynamic files.
+
