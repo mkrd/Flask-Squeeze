@@ -126,12 +126,14 @@ class Squeeze(object):
 
 	@logger(level=2, with_args=[1, 2, 3])
 	def get_from_cache(self, request_path: str, encoding: str, is_minified: bool) -> Union[bytes, None]:
-		return self.cache.get((request_path, encoding, is_minified), None)
+		file = request_path.replace("/static/", "")
+		return self.cache.get((file, encoding, is_minified), None)
 
 
 	@logger(level=2, with_args=[1, 2, 3])
 	def insert_to_cache(self, request_path: str, encoding: str, is_minified: bool, value: bytes) -> None:
-		self.cache[(request_path, encoding, is_minified)] = value
+		file = request_path.replace("/static/", "")
+		self.cache[(file, encoding, is_minified)] = value
 
 
 	@logger(level=2)
@@ -170,46 +172,47 @@ class Squeeze(object):
 		return True
 
 
+	def select_quality_from_config(self, encoding: str, resource_type: str) -> str:
+		options = {
+			("br", "static"):       "COMPRESS_LEVEL_BROTLI_STATIC",
+			("br", "dynamic"):      "COMPRESS_LEVEL_BROTLI_DYNAMIC",
+			("deflate", "static"):  "COMPRESS_LEVEL_DEFLATE_STATIC",
+			("deflate", "dynamic"): "COMPRESS_LEVEL_DEFLATE_DYNAMIC",
+			("gzip", "static"):     "COMPRESS_LEVEL_GZIP_STATIC",
+			("gzip", "dynamic"):    "COMPRESS_LEVEL_GZIP_DYNAMIC",
+		}
+		return self.app.config[options[(encoding, resource_type)]]
+
+
+
 	@logger(level=2, with_args=[1, 2, 3])
-	def compress(self, response: Response, compression_method: str, compression_type: str) -> bool:
+	def compress(self, response: Response, encoding: str, resource_type: str) -> bool:
 		"""
 			For a given response, return its contents
 			as a brotli compressed bytes object.
 			quality can be 0-11 for brotli, 0-9 for gzip.
 		"""
 
-		if compression_method not in ["br", "gzip", "deflate"]:
+		if encoding not in ["br", "gzip", "deflate"]:
 			return False
 
 		response.direct_passthrough = False
 		data = response.get_data(as_text=False)
 
-		if compression_method == "br":
-			if compression_type == "static":
-				quality = self.app.config["COMPRESS_LEVEL_BROTLI_STATIC"]
-			else:
-				quality = self.app.config["COMPRESS_LEVEL_BROTLI_DYNAMIC"]
-			self.log(3, f"Compressing with brotli, quality {quality}.")
-			compressed = brotli.compress(data, quality=quality)
-		elif compression_method == "gzip":
-			if compression_type == "static":
-				quality = self.app.config["COMPRESS_LEVEL_GZIP_STATIC"]
-			else:
-				quality = self.app.config["COMPRESS_LEVEL_GZIP_DYNAMIC"]
-			self.log(3, f"Compressing with gzip, quality {quality}.")
-			compressed = gzip.compress(data, compresslevel=quality)
-		elif compression_method == "deflate":
-			self.log(3, "Compressing with deflate.")
-			if compression_type == "static":
-				quality = self.app.config["COMPRESS_LEVEL_DEFLATE_STATIC"]
-			else:
-				quality = self.app.config["COMPRESS_LEVEL_DEFLATE_DYNAMIC"]
+		quality = self.select_quality_from_config(encoding, resource_type)
+		self.log(3, f"Compressing {resource_type} resource with {encoding}, quality {quality}.")
 
-			compressed = zlib.compress(data, level=quality)
+		if encoding == "br":
+			compressed_data = brotli.compress(data, quality=quality)
+		elif encoding == "deflate":
+			compressed_data = zlib.compress(data, level=quality)
+		elif encoding == "gzip":
+			compressed_data = gzip.compress(data, compresslevel=quality)
 
+		compress_ratio = len(response.get_data(as_text=False)) / len(compressed_data)
+		self.log(3, f"Compression ratio: {compress_ratio:.1f}x")
 
-		self.log(3, f"Compression ratio: {len(response.data) / len(compressed):.1f}x")
-		response.set_data(compressed)
+		response.set_data(compressed_data)
 		return True
 
 
@@ -219,25 +222,17 @@ class Squeeze(object):
 		if response.direct_passthrough:
 			return
 
-		update_vary = set()
-
 		if encoding != "none":
 			response.headers["Content-Encoding"] = encoding
-			response.headers["Content-Length"] = response.content_length
-			update_vary.add("Content-Encoding")
+			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
+			vary.add("Accept-Encoding")
+			vary.discard("")
+			response.headers["Vary"] = ",".join(vary)
 
 		if original_content_length != response.content_length:
 			response.headers["Content-Length"] = response.content_length
 			response.headers["X-Uncompressed-Content-Length"] = original_content_length
-			update_vary.add("Content-Length")
-			update_vary.add("X-Uncompressed-Content-Length")
 
-		if update_vary:
-			vary = response.headers.get("Vary", "")
-			vary = {s.strip() for s in vary.split(",")}
-			vary.update(update_vary)
-			vary.discard("")
-			response.headers["Vary"] = ", ".join(vary)
 
 
 	@logger(level=1)

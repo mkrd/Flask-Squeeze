@@ -1,6 +1,7 @@
 import pytest
 from test_app import create_app
 from flask.testing import FlaskClient
+from werkzeug.wrappers import Response
 
 
 @pytest.fixture
@@ -34,21 +35,27 @@ def almost_equal(a, b, percent=0.01):
 	return diff < percent * int(a) and diff < percent * int(b)
 
 
+def content_length_correct(r: Response) -> bool:
+	return int(r.headers.get("Content-Length", 0)) == len(r.data)
+
+
 
 def test_get_index(client: FlaskClient, use_encoding: str):
 	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
+	assert content_length_correct(r)
 	length = r.headers.get("Content-Length")
 	encoding = r.headers.get("Content-Encoding", "")
+
 
 	assert use_encoding == encoding
 	if use_encoding == "":
 		assert "X-Uncompressed-Content-Length" not in r.headers
 	else:
-		assert r.headers["X-Uncompressed-Content-Length"] == "3955741"
+		assert r.headers["X-Uncompressed-Content-Length"] == "3955747"
 
 	sizes = {
-		"": 3_955_741,
+		"": 3_955_747,
 		"br": 7_183,
 		"deflate": 83_466,
 		"gzip": 83_477,
@@ -62,6 +69,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 	print("test_get_css_file with", use_encoding, "minify:", use_minify_css)
 	client.application.config.update({"COMPRESS_MINIFY_CSS": use_minify_css})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": use_encoding})
+	assert content_length_correct(r)
 	length = r.headers.get("Content-Length")
 	encoding = r.headers.get("Content-Encoding", "")
 
@@ -86,6 +94,7 @@ def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool
 	print("test_get_js_file with", use_encoding, "minify:", use_minify_js)
 	client.application.config.update({"COMPRESS_MINIFY_JS": use_minify_js})
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": use_encoding})
+	assert content_length_correct(r)
 	encoding = r.headers.get("Content-Encoding", "")
 	assert encoding == use_encoding
 
@@ -94,6 +103,7 @@ def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool
 def test_get_jquery_no_minify(client: FlaskClient):
 	client.application.config.update({"COMPRESS_MINIFY_JS": False})
 	r_orig = client.get("/static/jquery.js", headers={})
+	assert content_length_correct(r_orig)
 	assert "Content-Encoding" not in r_orig.headers
 	assert r_orig.headers["Content-Length"] == "292458"
 	assert "X-Uncompressed-Content-Length" not in r_orig.headers
