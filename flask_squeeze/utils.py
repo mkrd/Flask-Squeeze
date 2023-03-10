@@ -1,8 +1,9 @@
-from flask import Request
+from flask import Request, Response
 
 
 
-def get_requested_encoding(request: Request) -> str:
+
+def get_requested_encoding_str(request: Request) -> str:
 	accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
 	if "br" in accepted_encodings:
 		return "br"
@@ -13,16 +14,53 @@ def get_requested_encoding(request: Request) -> str:
 	return "none"
 
 
+class RequestedEncoding:
+	def __init__(self, request: Request):
+		self.encoding = request.headers.get("Accept-Encoding", "").lower()
 
-def is_js(mimetype: str) -> bool:
-	return mimetype.endswith("javascript") or mimetype.endswith("json")
+	@property
+	def is_br(self) -> bool:
+		return "br" in self.encoding
+
+	@property
+	def is_deflate(self) -> bool:
+		return "deflate" in self.encoding
+
+	@property
+	def is_gzip(self) -> bool:
+		return "gzip" in self.encoding
+
+	@property
+	def none(self) -> bool:
+		return not (self.is_br or self.is_deflate or self.is_gzip)
+
+
+def get_requested_encoding(request: Request) -> RequestedEncoding:
+	return RequestedEncoding(request)
 
 
 
-def is_css(mimetype: str) -> bool:
-	return mimetype.endswith("css")
+class ResourceType:
+	def __init__(self, mimetype: str):
+		self.mimetype = mimetype
+
+	@property
+	def is_js(self) -> bool:
+		return self.mimetype.endswith("javascript") or self.mimetype.endswith("json")
+
+	@property
+	def is_css(self) -> bool:
+		return self.mimetype.endswith("css")
+
+	@property
+	def is_html(self) -> bool:
+		return self.mimetype.endswith("html")
+
+	@property
+	def other(self) -> bool:
+		return not (self.is_js or self.is_css or self.is_html)
 
 
 
-def is_html(mimetype: str) -> bool:
-	return mimetype.endswith("html")
+def get_resource_type(response: Response) -> ResourceType:
+	return ResourceType(response.mimetype)

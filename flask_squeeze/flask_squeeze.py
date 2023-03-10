@@ -21,9 +21,8 @@ from .debugger import (
 )
 from .utils import (
 	get_requested_encoding,
-	is_html,
-	is_css,
-	is_js,
+	get_requested_encoding_str,
+	get_resource_type,
 )
 
 
@@ -79,60 +78,49 @@ class Squeeze(object):
 		self.cache[(file, encoding, is_minified)] = value
 
 
+
 	# Minification
 	####################################################################################
 
 
-	def execute_minify(self, response: Response, file_type: str) -> None:
+
+	def should_minify(self, response: Response) -> bool:
+		""" Return True if the response should be minified. """
+		resource_type = get_resource_type(response)
+		return (
+			(resource_type.is_html and self.app.config["COMPRESS_MINIFY_HTML"]) or
+			(resource_type.is_css and self.app.config["COMPRESS_MINIFY_CSS"]) or
+			(resource_type.is_js and self.app.config["COMPRESS_MINIFY_JS"])
+		)
+
+
+
+	@d_log(level=2, with_args=[1])
+	def dispatch_minify(self, response: Response) -> bool:
+		"""
+			Dispatch minification to the correct function.
+			Exit early if minification is not enabled for the repsonse mimetype.
+		"""
+
+		resource_type = get_resource_type(response)
+		if not self.should_minify(response):
+			return False
+
 		response.direct_passthrough = False
 		data = response.get_data(as_text=True)
 
-		if file_type == "html":
-			minified = htmlmin.main.minify(data)
-		elif file_type == "css":
-			minified = cssmin(data, keep_bang_comments=False)
-		elif file_type == "js":
-			minified = jsmin(data, keep_bang_comments=False)
-		minified = minified.encode("utf-8")
+		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
+			if resource_type.is_html:
+				minified = htmlmin.main.minify(data)
+			elif resource_type.is_css:
+				minified = cssmin(data, keep_bang_comments=False)
+			elif resource_type.is_js:
+				minified = jsmin(data, keep_bang_comments=False)
 
+		minified = minified.encode("utf-8")
 		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
 		response.set_data(minified)
 
-
-	@d_log(level=2)
-	def minify_if_js(self, response: Response) -> bool:
-		if not self.app.config["COMPRESS_MINIFY_JS"]:
-			log(2, "Minifying javascript is disabled. EXIT.")
-			return False
-		if not is_js(response.mimetype):
-			log(3, f"MimeType is not js or json but {response.mimetype}. EXIT.")
-			return False
-		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
-			self.execute_minify(response, "js")
-		return True
-
-
-	@d_log(level=2)
-	def minify_if_css(self, response: Response) -> bool:
-		if not self.app.config["COMPRESS_MINIFY_CSS"]:
-			log(3, "Minifying css is disabled. EXIT.")
-			return False
-		if not is_css(response.mimetype):
-			log(3, f"MimeType is not css but {response.mimetype}. EXIT.")
-			return False
-		self.execute_minify(response, "css")
-		return True
-
-
-	@d_log(level=2)
-	def minify_if_html(self, response: Response) -> bool:
-		if not self.app.config["COMPRESS_MINIFY_HTML"]:
-			log(3, "Minifying HTML is disabled. EXIT.")
-			return False
-		if not is_html(response.mimetype):
-			log(3, f"MimeType is not HTML but {response.mimetype}. EXIT.")
-			return False
-		self.execute_minify(response, "html")
 		return True
 
 
@@ -152,7 +140,20 @@ class Squeeze(object):
 		return self.app.config[options[(encoding, resource_type)]]
 
 
-	def execute_compress(self, response: Response, encoding: str, resource_type: str) -> None:
+	def should_compress(self, response: Response) -> bool:
+		""" Return True if the response should be compressed. """
+		requested_encoding = get_requested_encoding(request)
+		return self.app.config["COMPRESS_FLAG"] and not requested_encoding.none
+
+
+
+	@d_log(level=2, with_args=[1, 2, 3])
+	def dispatch_compress(self, response: Response, encoding: str, resource_type: str) -> bool:
+		requested_encoding = get_requested_encoding(request)
+		if not self.should_compress(response):
+			print("should not compress")
+			return False
+
 		response.direct_passthrough = False
 		data = response.get_data(as_text=False)
 
@@ -160,32 +161,22 @@ class Squeeze(object):
 		log(3, f"Compressing {resource_type} resource with {encoding}, quality {quality}.")
 
 		with ctx_add_debug_header("X-Flask-Squeeze-Compress-Duration", response):
-			if encoding == "br":
+			if requested_encoding.is_br:
 				compressed_data = brotli.compress(data, quality=quality)
-			elif encoding == "deflate":
+			elif requested_encoding.is_deflate:
 				compressed_data = zlib.compress(data, level=quality)
-			elif encoding == "gzip":
+			elif requested_encoding.is_gzip:
 				compressed_data = gzip.compress(data, compresslevel=quality)
 
 		compress_ratio = len(response.get_data(as_text=False)) / len(compressed_data)
-		log(3, f"Compression ratio: {compress_ratio:.1f}x")
+		log(3, f"Compression ratio: {compress_ratio:.1f}x, used {encoding}")
 
 		response.set_data(compressed_data)
 
-
-	@d_log(level=2, with_args=[1, 2, 3])
-	def compress_if_requested(self, response: Response, encoding: str, resource_type: str) -> bool:
-		"""
-			For a given response, return its contents
-			as a brotli compressed bytes object.
-			quality can be 0-11 for brotli, 0-9 for gzip.
-		"""
-
-		if encoding not in ["br", "gzip", "deflate"]:
-			return False
-		with ctx_add_debug_header("X-Flask-Squeeze-Compress-Duration", response):
-			self.execute_compress(response, encoding, resource_type)
 		return True
+
+
+
 
 
 	@d_log(level=1)
@@ -214,10 +205,8 @@ class Squeeze(object):
 			- No caching is done.
 		"""
 
-		self.minify_if_html(response)
-		self.minify_if_css(response)
-		self.minify_if_js(response)
-		was_compressed = self.compress_if_requested(response, encoding, "dynamic")
+		self.dispatch_minify(response)
+		was_compressed = self.dispatch_compress(response, encoding, "dynamic")
 		# Protect against BREACH attack
 		if was_compressed:
 			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
@@ -232,11 +221,9 @@ class Squeeze(object):
 			Compress a static resource.
 		"""
 
-		m_css = is_css(response.mimetype) and self.app.config["COMPRESS_MINIFY_CSS"]
-		m_js = is_js(response.mimetype) and self.app.config["COMPRESS_MINIFY_JS"]
-		minify = m_css or m_js
+		should_minify = self.should_minify(response)
 
-		if (from_cache := self.get_from_cache(request.path, encoding, minify)) is not None:
+		if (from_cache := self.get_from_cache(request.path, encoding, should_minify)) is not None:
 			log(1, "Found in cache. RETURN")
 			response.direct_passthrough = False
 			response.set_data(from_cache)
@@ -245,11 +232,8 @@ class Squeeze(object):
 
 		# Assert: not in cache
 
-		css_was_minified = self.minify_if_css(response)
-		js_was_minified = self.minify_if_js(response)
-		html_was_minified = self.minify_if_html(response)
-		minified = css_was_minified or js_was_minified or html_was_minified
-		was_compressed = self.compress_if_requested(response, encoding, "static")
+		minified = self.dispatch_minify(response)
+		was_compressed = self.dispatch_compress(response, encoding, "static")
 
 		if was_compressed or minified:
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
@@ -277,7 +261,7 @@ class Squeeze(object):
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		encoding = get_requested_encoding(request)
+		encoding = get_requested_encoding_str(request)
 		original_content_length = response.content_length
 
 		if "/static/" not in request.path:
