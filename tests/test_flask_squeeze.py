@@ -51,10 +51,10 @@ def test_get_index(client: FlaskClient, use_encoding: str):
 	assert use_encoding == encoding
 
 	sizes = {
-		"": 3_931_702,
-		"br": 7_110,
-		"deflate": 71_973,
-		"gzip": 71_984,
+		"": 3_932_146,
+		"br": 6_926,
+		"deflate": 72_206,
+		"gzip": 72_219,
 	}
 
 	assert almost_equal(length, sizes[use_encoding])
