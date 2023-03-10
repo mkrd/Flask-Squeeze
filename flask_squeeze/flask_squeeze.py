@@ -10,6 +10,7 @@ from flask import Flask, Response, Request, current_app, request
 import brotli
 from rjsmin import jsmin
 from rcssmin import cssmin
+import htmlmin
 
 
 
@@ -84,6 +85,10 @@ def is_css(mimetype: str) -> bool:
 	return mimetype.endswith("css")
 
 
+def is_html(mimetype: str) -> bool:
+	return mimetype.endswith("html")
+
+
 
 class Squeeze(object):
 	cache: Dict[Tuple[str, str, bool], bytes]  # keys are (request.path, encoding, is_minified)
@@ -118,6 +123,7 @@ class Squeeze(object):
 
 		app.config.setdefault("COMPRESS_MINIFY_JS", True)
 		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
+		app.config.setdefault("COMPRESS_MINIFY_HTML", True)
 
 		app.config.setdefault("COMPRESS_VERBOSE_LOGGING", False)
 		if app.config["COMPRESS_FLAG"]:
@@ -136,21 +142,32 @@ class Squeeze(object):
 		self.cache[(file, encoding, is_minified)] = value
 
 
+
+	def execute_minify(self, response: Response, file_type: str) -> None:
+		response.direct_passthrough = False
+		data = response.get_data(as_text=True)
+
+		if file_type == "html":
+			minified = htmlmin.main.minify(data)
+		elif file_type == "css":
+			minified = cssmin(data, keep_bang_comments=False)
+		elif file_type == "js":
+			minified = jsmin(data, keep_bang_comments=False)
+		minified = minified.encode("utf-8")
+
+		self.log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
+		response.set_data(minified)
+
+
 	@logger(level=2)
 	def minify_if_js(self, response: Response) -> bool:
 		if not self.app.config["COMPRESS_MINIFY_JS"]:
 			self.log(2, "Minifying javascript is disabled. EXIT.")
 			return False
-
 		if not is_js(response.mimetype):
 			self.log(3, f"MimeType is not js or json but {response.mimetype}. EXIT.")
 			return False
-
-		response.direct_passthrough = False
-		data = response.get_data(as_text=True)
-		minified = jsmin(data, keep_bang_comments=False).encode("utf-8")
-		self.log(3, f"Minify ratio: {len(data) / len(minified):.1f}x")
-		response.set_data(minified)
+		self.execute_minify(response, "js")
 		return True
 
 
@@ -159,16 +176,22 @@ class Squeeze(object):
 		if not self.app.config["COMPRESS_MINIFY_CSS"]:
 			self.log(3, "Minifying css is disabled. EXIT.")
 			return False
-
 		if not is_css(response.mimetype):
 			self.log(3, f"MimeType is not css but {response.mimetype}. EXIT.")
 			return False
+		self.execute_minify(response, "css")
+		return True
 
-		response.direct_passthrough = False
-		data = response.get_data(as_text=True)
-		minified = cssmin(data, keep_bang_comments=False).encode("utf-8")
-		self.log(3, f"Minify ratio: {len(data) / len(minified):.1f}x")
-		response.set_data(minified)
+
+	@logger(level=2)
+	def minify_if_html(self, response: Response) -> bool:
+		if not self.app.config["COMPRESS_MINIFY_HTML"]:
+			self.log(3, "Minifying HTML is disabled. EXIT.")
+			return False
+		if not is_html(response.mimetype):
+			self.log(3, f"MimeType is not HTML but {response.mimetype}. EXIT.")
+			return False
+		self.execute_minify(response, "html")
 		return True
 
 
@@ -244,6 +267,7 @@ class Squeeze(object):
 
 		self.minify_if_css(response)
 		self.minify_if_js(response)
+		self.minify_if_html(response)
 		was_compressed = self.compress(response, encoding, "dynamic")
 		# Protect against BREACH attack
 		if was_compressed:
@@ -273,7 +297,8 @@ class Squeeze(object):
 
 		css_was_minified = self.minify_if_css(response)
 		js_was_minified = self.minify_if_js(response)
-		minified = css_was_minified or js_was_minified
+		html_was_minified = self.minify_if_html(response)
+		minified = css_was_minified or js_was_minified or html_was_minified
 		was_compressed = self.compress(response, encoding, "static")
 
 		if was_compressed or minified:
