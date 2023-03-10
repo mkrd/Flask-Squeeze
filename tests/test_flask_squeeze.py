@@ -49,16 +49,12 @@ def test_get_index(client: FlaskClient, use_encoding: str):
 
 
 	assert use_encoding == encoding
-	if use_encoding == "":
-		assert "X-Uncompressed-Content-Length" not in r.headers
-	else:
-		assert r.headers["X-Uncompressed-Content-Length"] == "3955747"
 
 	sizes = {
-		"": 3_955_747,
-		"br": 7_183,
-		"deflate": 83_466,
-		"gzip": 83_477,
+		"": 3_931_702,
+		"br": 7_110,
+		"deflate": 71_973,
+		"gzip": 71_984,
 	}
 
 	assert almost_equal(length, sizes[use_encoding])

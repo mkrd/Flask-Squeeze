@@ -39,12 +39,14 @@ To control how Flask-Squeeze behaves, the following options exist:
 You can configure Flask-Squeeze with the following options in your [Flask config](https://flask.palletsprojects.com/en/latest/config/):
 - `COMPRESS_FLAG (default=True)`: Globally enables or disables Flask-Squeeze
 - `COMPRESS_MIN_SIZE (default=500)`: Defines the minimum file size in bytes to activate the compression
-- `COMPRESS_MINIFY_CSS (default=True)`: Enable or disable css minification using rcssmin.
-- `COMPRESS_MINIFY_JS (default=True)`: Enable or disable css minification using rcssmin.
 - `COMPRESS_VERBOSE_LOGGING (default=False)`: Enable or disable verbose logging. If enabled, Flask-Squeeze will print what it does into the terminal in a highlighted color.
 
-### Compression level options
+### Minification options
+- `COMPRESS_MINIFY_HTML (default=True)`: Enable or disable HTML minification using htmlmin.
+- `COMPRESS_MINIFY_CSS (default=True)`: Enable or disable css minification using rcssmin.
+- `COMPRESS_MINIFY_JS (default=True)`: Enable or disable js minification using rjsmin.
 
+### Compression level options
 > Static files are chached, so they only have to be compressed once.
 > Dynamic files like generated HTML files will not be cached, so they will be compressed for each response.
 
@@ -54,4 +56,3 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 - `COMPRESS_LEVEL_DEFLATE_DYNAMIC (default=1, min=-1, max=9)`:  Defines the compression level of deflate for dynamic files.
 - `COMPRESS_LEVEL_GZIP_STATIC (default=9, min=0 , max=9)`: Defines the compression level of gzip for static files.
 - `COMPRESS_LEVEL_GZIP_DYNAMIC (default=1, min=0, max=9)`:  Defines the compression level of gzip for dynamic files.
-

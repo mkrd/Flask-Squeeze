@@ -244,6 +244,17 @@ async = ["asgiref (>=3.2)"]
 dotenv = ["python-dotenv"]
 
 [[package]]
+name = "htmlmin"
+version = "0.1.12"
+description = "An HTML Minifier"
+category = "main"
+optional = false
+python-versions = "*"
+files = [
+    {file = "htmlmin-0.1.12.tar.gz", hash = "sha256:50c1ef4630374a5d723900096a961cff426dff46b48f34d194a81bbe14eca178"},
+]
+
+[[package]]
 name = "importlib-metadata"
 version = "6.0.0"
 description = "Read metadata from Python packages"
@@ -563,4 +574,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "2a69c200ce07df25e1cce8525b65b0a937f4c48204a6a8d7fbd8854db24ea33e"
+content-hash = "9d82c729d00b079878970d5978d777b5793d9d9a71f49f754b72b6f54336b8b5"
