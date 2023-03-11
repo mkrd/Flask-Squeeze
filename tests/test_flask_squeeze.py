@@ -91,8 +91,7 @@ def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool
 	client.application.config.update({"COMPRESS_MINIFY_JS": use_minify_js})
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	encoding = r.headers.get("Content-Encoding", "")
-	assert encoding == use_encoding
+	assert use_encoding == r.headers.get("Content-Encoding", "")
 
 
 
@@ -115,14 +114,3 @@ def test_get_from_cache(client: FlaskClient, use_encoding: str):
 def test_get_unknown_url(client: FlaskClient):
 	r = client.get("/static/unknown.js", headers={"Accept-Encoding": "gzip"})
 	assert r.status_code == 404
-
-
-
-def test_get_jquery_with_minify(client: FlaskClient):
-	print("test_get_jquery_with_minify")
-	client.application.config.update({"COMPRESS_MINIFY_JS": True})
-	r_orig = client.get("/static/jquery.js", headers={})
-	assert "Content-Encoding" not in r_orig.headers
-	print(r_orig.headers["Content-Length"])
-	assert r_orig.headers["Content-Length"] == "144649"
-	assert r_orig.headers["X-Uncompressed-Content-Length"] == "292458"

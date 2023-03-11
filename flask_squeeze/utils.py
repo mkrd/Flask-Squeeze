@@ -1,66 +1,73 @@
-from flask import Request, Response
+from flask import Request, Response, current_app
 
-
-
-
-def get_requested_encoding_str(request: Request) -> str:
-	accepted_encodings = request.headers.get("Accept-Encoding", "").lower()
-	if "br" in accepted_encodings:
-		return "br"
-	if "deflate" in accepted_encodings:
-		return "deflate"
-	if "gzip" in accepted_encodings:
-		return "gzip"
-	return "none"
 
 
 class RequestedEncoding:
-	def __init__(self, request: Request):
-		self.encoding = request.headers.get("Accept-Encoding", "").lower()
+	def __init__(self, request: Request) -> None:
+		encoding = request.headers.get("Accept-Encoding", "").lower()
+		if "br" in encoding:
+			self.value = "br"
+		elif "deflate" in encoding:
+			self.value = "deflate"
+		elif "gzip" in encoding:
+			self.value = "gzip"
+		else:
+			self.value = "none"
 
 	@property
 	def is_br(self) -> bool:
-		return "br" in self.encoding
+		return self.value == "br"
 
 	@property
 	def is_deflate(self) -> bool:
-		return "deflate" in self.encoding
+		return self.value == "deflate"
 
 	@property
 	def is_gzip(self) -> bool:
-		return "gzip" in self.encoding
+		return self.value == "gzip"
 
 	@property
 	def none(self) -> bool:
-		return not (self.is_br or self.is_deflate or self.is_gzip)
+		return self.value == "none"
 
-
-def get_requested_encoding(request: Request) -> RequestedEncoding:
-	return RequestedEncoding(request)
+	@property
+	def should_compress(self) -> bool:
+		return not self.none and current_app.config["COMPRESS_FLAG"]
 
 
 
 class ResourceType:
-	def __init__(self, mimetype: str):
-		self.mimetype = mimetype
+	def __init__(self, response: Response) -> None:
+		mimetype = response.mimetype
+		if mimetype.endswith("javascript") or mimetype.endswith("json"):
+			self.value = "js"
+		elif mimetype.endswith("css"):
+			self.value = "css"
+		elif mimetype.endswith("html"):
+			self.value = "html"
+		else:
+			self.value = "other"
 
 	@property
 	def is_js(self) -> bool:
-		return self.mimetype.endswith("javascript") or self.mimetype.endswith("json")
+		return self.value == "js"
 
 	@property
 	def is_css(self) -> bool:
-		return self.mimetype.endswith("css")
+		return self.value == "css"
 
 	@property
 	def is_html(self) -> bool:
-		return self.mimetype.endswith("html")
+		return self.value == "html"
 
 	@property
 	def other(self) -> bool:
-		return not (self.is_js or self.is_css or self.is_html)
+		return self.value == "other"
 
-
-
-def get_resource_type(response: Response) -> ResourceType:
-	return ResourceType(response.mimetype)
+	@property
+	def should_minify(self) -> bool:
+		return (
+			(self.is_html and current_app.config["COMPRESS_MINIFY_HTML"]) or
+			(self.is_css and current_app.config["COMPRESS_MINIFY_CSS"]) or
+			(self.is_js and current_app.config["COMPRESS_MINIFY_JS"])
+		)

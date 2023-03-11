@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Union
+from typing import Union
 import gzip
 import time
 import zlib
@@ -11,30 +11,38 @@ from rcssmin import cssmin
 import htmlmin
 import brotli
 
-from .logger import (
+from .cache import (
+	Cache,
+)
+
+from .logging import (
 	d_log,
 	log,
 )
-from .debugger import (
+
+from .debugging import (
 	ctx_add_debug_header,
 	add_debug_header,
 )
+
 from .utils import (
-	get_requested_encoding,
-	get_requested_encoding_str,
-	get_resource_type,
+	RequestedEncoding,
+	ResourceType,
 )
 
 
 
 class Squeeze(object):
-	cache: Dict[Tuple[str, str, bool], bytes]  # keys are (request.path, encoding, is_minified)
+	cache: Cache
 	app: Flask
+
+	requested_encoding: RequestedEncoding
+	response_resource_type: ResourceType
 
 
 	def __init__(self, app: Flask = None) -> None:
 		""" Initialize Flask-Squeeze with or without app. """
-		self.cache = {}
+		self.cache = Cache()
 		self.app = app
 		if app is not None:
 			self.init_app(app)
@@ -62,73 +70,48 @@ class Squeeze(object):
 
 		if app.config["COMPRESS_FLAG"]:
 			app.after_request(self.after_request)
-
-	# Cache
-	####################################################################################
-
-	@d_log(level=2, with_args=[1, 2, 3])
-	def get_from_cache(self, request_path: str, encoding: str, is_minified: bool) -> Union[bytes, None]:
-		file = request_path.replace("/static/", "")
-		return self.cache.get((file, encoding, is_minified), None)
+			app.before_request(self.before_request)
 
 
-	@d_log(level=2, with_args=[1, 2, 3])
-	def insert_to_cache(self, request_path: str, encoding: str, is_minified: bool, value: bytes) -> None:
-		file = request_path.replace("/static/", "")
-		self.cache[(file, encoding, is_minified)] = value
-
+	def before_request(self) -> None:
+		""" Called before each request. """
+		self.before_request_t0 = time.perf_counter()
 
 
 	# Minification
 	####################################################################################
 
 
-
-	def should_minify(self, response: Response) -> bool:
-		""" Return True if the response should be minified. """
-		resource_type = get_resource_type(response)
-		return (
-			(resource_type.is_html and self.app.config["COMPRESS_MINIFY_HTML"]) or
-			(resource_type.is_css and self.app.config["COMPRESS_MINIFY_CSS"]) or
-			(resource_type.is_js and self.app.config["COMPRESS_MINIFY_JS"])
-		)
-
-
-
 	@d_log(level=2, with_args=[1])
-	def dispatch_minify(self, response: Response) -> bool:
+	def execute_minify(self, response: Response) -> None:
 		"""
 			Dispatch minification to the correct function.
 			Exit early if minification is not enabled for the repsonse mimetype.
 		"""
-
-		resource_type = get_resource_type(response)
-		if not self.should_minify(response):
-			return False
-
 		response.direct_passthrough = False
 		data = response.get_data(as_text=True)
 
-		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
-			if resource_type.is_html:
-				minified = htmlmin.main.minify(data)
-			elif resource_type.is_css:
-				minified = cssmin(data, keep_bang_comments=False)
-			elif resource_type.is_js:
-				minified = jsmin(data, keep_bang_comments=False)
+		log(3, f"Minifying {self.response_resource_type.value} resource")
 
-		minified = minified.encode("utf-8")
+		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
+			if self.response_resource_type.is_html:
+				minified = htmlmin.main.minify(data)
+			elif self.response_resource_type.is_css:
+				minified = cssmin(data, keep_bang_comments=False)
+			elif self.response_resource_type.is_js:
+				minified = jsmin(data, keep_bang_comments=False)
+			minified = minified.encode("utf-8")
+
 		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
 		response.set_data(minified)
-
-		return True
 
 
 	# Compression
 	####################################################################################
 
 
-	def select_quality_from_config(self, encoding: str, resource_type: str) -> str:
+	def select_quality_from_config(self) -> str:
+		option = (self.requested_encoding.value, "static" if self.static_resource else "dynamic")
 		options = {
 			("br", "static"):       "COMPRESS_LEVEL_BROTLI_STATIC",
 			("br", "dynamic"):      "COMPRESS_LEVEL_BROTLI_DYNAMIC",
@@ -137,56 +120,100 @@ class Squeeze(object):
 			("gzip", "static"):     "COMPRESS_LEVEL_GZIP_STATIC",
 			("gzip", "dynamic"):    "COMPRESS_LEVEL_GZIP_DYNAMIC",
 		}
-		return self.app.config[options[(encoding, resource_type)]]
-
-
-	def should_compress(self, response: Response) -> bool:
-		""" Return True if the response should be compressed. """
-		requested_encoding = get_requested_encoding(request)
-		return self.app.config["COMPRESS_FLAG"] and not requested_encoding.none
+		return self.app.config[options[option]]
 
 
 
 	@d_log(level=2, with_args=[1, 2, 3])
-	def dispatch_compress(self, response: Response, encoding: str, resource_type: str) -> bool:
-		requested_encoding = get_requested_encoding(request)
-		if not self.should_compress(response):
-			print("should not compress")
-			return False
-
+	def execute_compress(self, response: Response) -> None:
 		response.direct_passthrough = False
 		data = response.get_data(as_text=False)
+		quality = self.select_quality_from_config()
 
-		quality = self.select_quality_from_config(encoding, resource_type)
-		log(3, f"Compressing {resource_type} resource with {encoding}, quality {quality}.")
+		log(3, (
+			f"Compressing {self.response_resource_type.value} resource with "
+			f"{self.requested_encoding.value}, and quality {quality}."
+		))
 
 		with ctx_add_debug_header("X-Flask-Squeeze-Compress-Duration", response):
-			if requested_encoding.is_br:
+			if self.requested_encoding.is_br:
 				compressed_data = brotli.compress(data, quality=quality)
-			elif requested_encoding.is_deflate:
+			elif self.requested_encoding.is_deflate:
 				compressed_data = zlib.compress(data, level=quality)
-			elif requested_encoding.is_gzip:
+			elif self.requested_encoding.is_gzip:
 				compressed_data = gzip.compress(data, compresslevel=quality)
 
-		compress_ratio = len(response.get_data(as_text=False)) / len(compressed_data)
-		log(3, f"Compression ratio: {compress_ratio:.1f}x, used {encoding}")
+		log(3, (
+			f"Compression ratio: { len(data) / len(compressed_data):.1f}x, "
+			f"used {self.requested_encoding.value}"
+		))
 
 		response.set_data(compressed_data)
-
-		return True
-
-
 
 
 
 	@d_log(level=1)
-	def recompute_headers(self, response: Response, encoding: str, original_content_length: int) -> None:
+	def run_for_dynamic_resource(self, response: Response) -> None:
+		"""
+			Compress a dynamic resource.
+			- No caching is done.
+		"""
+
+		if self.response_resource_type.should_minify:
+			self.execute_minify(response)
+		if should_compress := self.requested_encoding.should_compress:
+			self.execute_compress(response)
+		# Protect against BREACH attack
+		if should_compress:
+			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
+			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
+			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
+
+
+
+	@d_log(level=1)
+	def run_for_static_resource(self,
+		response: Response,
+	) -> None:
+		"""
+			Compress a static resource.
+		"""
+
+		should_compress = self.requested_encoding.should_compress
+		should_minify = self.response_resource_type.should_minify
+		encoding = self.requested_encoding.value
+
+		from_cache = self.cache.get(request.path, encoding, should_minify)
+		if from_cache is not None:
+			log(1, "Found in cache. RETURN")
+			response.direct_passthrough = False
+			response.set_data(from_cache)
+			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
+			return
+
+		# Assert: not in cache
+
+		if should_minify:
+			self.execute_minify(response)
+		if should_compress:
+			self.execute_compress(response)
+
+		# If compression or minification was done, insert into cache
+		if should_compress or should_minify:
+			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+			data = response.get_data(as_text=False)
+			self.cache.insert(request.path, encoding, should_minify, data)
+
+
+
+	@d_log(level=1)
+	def recompute_headers(self, response: Response, original_content_length: int) -> None:
 		# If direct_passthrough is set, the response was not modified.
 		if response.direct_passthrough:
 			return
 
-		if encoding != "none":
-			response.headers["Content-Encoding"] = encoding
+		if not self.requested_encoding.none:
+			response.headers["Content-Encoding"] = self.requested_encoding.value
 			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
 			vary.add("Accept-Encoding")
 			vary.discard("")
@@ -196,49 +223,6 @@ class Squeeze(object):
 			response.headers["Content-Length"] = response.content_length
 			response.headers["X-Uncompressed-Content-Length"] = original_content_length
 
-
-
-	@d_log(level=1)
-	def run_for_dynamic_resource(self, response: Response, encoding: str) -> None:
-		"""
-			Compress a dynamic resource.
-			- No caching is done.
-		"""
-
-		self.dispatch_minify(response)
-		was_compressed = self.dispatch_compress(response, encoding, "dynamic")
-		# Protect against BREACH attack
-		if was_compressed:
-			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
-			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
-			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
-
-
-
-	@d_log(level=1)
-	def run_for_static_resource(self, response: Response, encoding: str) -> None:
-		"""
-			Compress a static resource.
-		"""
-
-		should_minify = self.should_minify(response)
-
-		if (from_cache := self.get_from_cache(request.path, encoding, should_minify)) is not None:
-			log(1, "Found in cache. RETURN")
-			response.direct_passthrough = False
-			response.set_data(from_cache)
-			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
-			return
-
-		# Assert: not in cache
-
-		minified = self.dispatch_minify(response)
-		was_compressed = self.dispatch_compress(response, encoding, "static")
-
-		if was_compressed or minified:
-			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			data = response.get_data(as_text=False)
-			self.insert_to_cache(request.path, encoding, minified, data)
 
 
 	@d_log(level=0, with_args=[1])
@@ -261,17 +245,32 @@ class Squeeze(object):
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		encoding = get_requested_encoding_str(request)
+		self.requested_encoding = RequestedEncoding(request)
+		self.response_resource_type = ResourceType(response)
+
+		if not (self.requested_encoding.should_compress
+			or self.response_resource_type.should_minify
+		):
+			log(1, "No compression or minification requested. RETURN")
+			return response
+
 		original_content_length = response.content_length
 
 		if "/static/" not in request.path:
 			log(1, "Dynamic resource. Compress and return.")
-			self.run_for_dynamic_resource(response, encoding)
+			self.static_resource = False
+			self.run_for_dynamic_resource(response)
 		else:
 			log(1, "Static resource. Return from cache if already cached")
-			self.run_for_static_resource(response, encoding)
+			self.static_resource = True
+			self.run_for_static_resource(response)
 
-		self.recompute_headers(response, encoding, original_content_length)
+		self.recompute_headers(response, original_content_length)
 
-		log(0, f"cache keys: {self.cache.keys()}")
+		log(1, f"cache {self.cache}")
+		log(1, (
+			"Flask Squeeze: Time from request to response: "
+			f"{(time.perf_counter() - self.before_request_t0) * 1000:.1f}ms"
+		))
+
 		return response
