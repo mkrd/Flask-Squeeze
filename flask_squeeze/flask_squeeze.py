@@ -1,3 +1,4 @@
+from typing import Union
 import gzip
 import time
 import zlib
@@ -25,18 +26,22 @@ from .debugging import (
 )
 
 from .utils import (
-	RequestedEncoding,
-	ResourceType,
+	choose_encoding,
+	choose_minification,
+	Encoding,
+	Minifcation,
 )
 
 
 
 class Squeeze(object):
+
+	__slots__ = "cache", "app", "encode_choice", "minify_choice", "resource_type"
 	cache: Cache
 	app: Flask
-
-	requested_encoding: RequestedEncoding
-	response_resource_type: ResourceType
+	encode_choice: Union[Encoding, None]
+	minify_choice: Union[Minifcation, None]
+	resource_type: Union[str, None]
 
 
 	def __init__(self, app: Flask = None) -> None:
@@ -84,14 +89,14 @@ class Squeeze(object):
 		response.direct_passthrough = False
 		data = response.get_data(as_text=True)
 
-		log(3, f"Minifying {self.response_resource_type.value} resource")
+		log(3, f"Minifying {self.minify_choice.value} resource")
 
 		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
-			if self.response_resource_type.is_html:
+			if self.minify_choice == Minifcation.html:
 				minified = htmlmin.main.minify(data)
-			elif self.response_resource_type.is_css:
+			elif self.minify_choice == Minifcation.css:
 				minified = cssmin(data, keep_bang_comments=False)
-			elif self.response_resource_type.is_js:
+			elif self.minify_choice == Minifcation.js:
 				minified = jsmin(data, keep_bang_comments=False)
 			minified = minified.encode("utf-8")
 
@@ -104,16 +109,15 @@ class Squeeze(object):
 
 
 	def select_quality_from_config(self) -> str:
-		option = (self.requested_encoding.value, "static" if self.static_resource else "dynamic")
 		options = {
-			("br", "static"):       "COMPRESS_LEVEL_BROTLI_STATIC",
-			("br", "dynamic"):      "COMPRESS_LEVEL_BROTLI_DYNAMIC",
-			("deflate", "static"):  "COMPRESS_LEVEL_DEFLATE_STATIC",
-			("deflate", "dynamic"): "COMPRESS_LEVEL_DEFLATE_DYNAMIC",
-			("gzip", "static"):     "COMPRESS_LEVEL_GZIP_STATIC",
-			("gzip", "dynamic"):    "COMPRESS_LEVEL_GZIP_DYNAMIC",
+			(Encoding.br, "static"):       "COMPRESS_LEVEL_BROTLI_STATIC",
+			(Encoding.br, "dynamic"):      "COMPRESS_LEVEL_BROTLI_DYNAMIC",
+			(Encoding.deflate, "static"):  "COMPRESS_LEVEL_DEFLATE_STATIC",
+			(Encoding.deflate, "dynamic"): "COMPRESS_LEVEL_DEFLATE_DYNAMIC",
+			(Encoding.gzip, "static"):     "COMPRESS_LEVEL_GZIP_STATIC",
+			(Encoding.gzip, "dynamic"):    "COMPRESS_LEVEL_GZIP_DYNAMIC",
 		}
-		return self.app.config[options[option]]
+		return self.app.config[options[(self.encode_choice, self.resource_type)]]
 
 
 
@@ -124,21 +128,21 @@ class Squeeze(object):
 		quality = self.select_quality_from_config()
 
 		log(3, (
-			f"Compressing {self.response_resource_type.value} resource with "
-			f"{self.requested_encoding.value}, and quality {quality}."
+			f"Compressing resource with {self.encode_choice.value} encoding",
+			f", and quality {quality}."
 		))
 
 		with ctx_add_debug_header("X-Flask-Squeeze-Compress-Duration", response):
-			if self.requested_encoding.is_br:
+			if self.encode_choice == Encoding.br:
 				compressed_data = brotli.compress(data, quality=quality)
-			elif self.requested_encoding.is_deflate:
+			elif self.encode_choice == Encoding.deflate:
 				compressed_data = zlib.compress(data, level=quality)
-			elif self.requested_encoding.is_gzip:
+			elif self.encode_choice == Encoding.gzip:
 				compressed_data = gzip.compress(data, compresslevel=quality)
 
 		log(3, (
 			f"Compression ratio: { len(data) / len(compressed_data):.1f}x, "
-			f"used {self.requested_encoding.value}"
+			f"used {self.encode_choice.value}"
 		))
 
 		response.set_data(compressed_data)
@@ -152,12 +156,12 @@ class Squeeze(object):
 			- No caching is done.
 		"""
 
-		if self.response_resource_type.should_minify:
+		if self.minify_choice:
 			self.execute_minify(response)
-		if should_compress := self.requested_encoding.should_compress:
+		if self.encode_choice:
 			self.execute_compress(response)
 		# Protect against BREACH attack
-		if should_compress:
+		if self.encode_choice:
 			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
 			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
 			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
@@ -166,19 +170,16 @@ class Squeeze(object):
 
 	@d_log(level=1)
 	def run_for_static_resource(self,
-		response: Response,
+			response: Response,
 	) -> None:
 		"""
 			Compress a static resource.
 		"""
 
-		should_compress = self.requested_encoding.should_compress
-		should_minify = self.response_resource_type.should_minify
-		encoding = self.requested_encoding.value
-
-		from_cache = self.cache.get(request.path, encoding, should_minify)
+		path = request.path
+		from_cache = self.cache.get(path, self.encode_choice, self.minify_choice)
 		if from_cache is not None:
-			log(1, "Found in cache. RETURN")
+			log(2, "Found in cache. RETURN")
 			response.direct_passthrough = False
 			response.set_data(from_cache)
 			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
@@ -186,27 +187,30 @@ class Squeeze(object):
 
 		# Assert: not in cache
 
-		if should_minify:
+		if self.minify_choice:
 			self.execute_minify(response)
-		if should_compress:
+		if self.encode_choice:
 			self.execute_compress(response)
 
 		# If compression or minification was done, insert into cache
-		if should_compress or should_minify:
+		if self.encode_choice or self.minify_choice:
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 			data = response.get_data(as_text=False)
-			self.cache.insert(request.path, encoding, should_minify, data)
+			self.cache.insert(path, self.encode_choice, self.minify_choice, data)
 
 
 
-	@d_log(level=1)
-	def recompute_headers(self, response: Response, original_content_length: int) -> None:
+	@d_log(level=1, with_args=[1, 2])
+	def recompute_headers(self,
+			response: Response,
+			original_content_length: int
+	) -> None:
 		# If direct_passthrough is set, the response was not modified.
 		if response.direct_passthrough:
 			return
 
-		if not self.requested_encoding.none:
-			response.headers["Content-Encoding"] = self.requested_encoding.value
+		if self.encode_choice:
+			response.headers["Content-Encoding"] = self.encode_choice.value
 			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
 			vary.add("Accept-Encoding")
 			vary.discard("")
@@ -221,7 +225,7 @@ class Squeeze(object):
 	@d_log(level=0, with_args=[1])
 	@add_debug_header("X-Flask-Squeeze-Total-Duration")
 	def after_request(self, response: Response) -> Response:
-		log(0, f"Enter after_request({response})")
+		log(1, f"Enter after_request({response})")
 
 		if response.status_code < 200 or response.status_code >= 300:
 			log(1, "Response status code is not ok. RETURN")
@@ -238,28 +242,26 @@ class Squeeze(object):
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		self.requested_encoding = RequestedEncoding(request)
-		self.response_resource_type = ResourceType(response)
+		self.encode_choice = choose_encoding(request)
+		self.minify_choice = choose_minification(response)
 
-		if not (self.requested_encoding.should_compress
-			or self.response_resource_type.should_minify
-		):
+		if not self.encode_choice and not self.minify_choice:
 			log(1, "No compression or minification requested. RETURN")
 			return response
 
 		original_content_length = response.content_length
 
 		if "/static/" not in request.path:
-			log(1, "Dynamic resource. Compress and return.")
-			self.static_resource = False
+			log(1, "Dynamic resource.")
+			self.resource_type = "dynamic"
 			self.run_for_dynamic_resource(response)
 		else:
-			log(1, "Static resource. Return from cache if already cached")
-			self.static_resource = True
+			log(1, "Static resource.")
+			self.resource_type = "static"
 			self.run_for_static_resource(response)
 
 		self.recompute_headers(response, original_content_length)
 
-		log(1, f"cache {self.cache}")
+		log(1, f"{self.cache}")
 
 		return response

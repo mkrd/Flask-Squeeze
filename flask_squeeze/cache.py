@@ -1,10 +1,11 @@
 from typing import Dict, Tuple, Union
 
 from .logging import d_log
+from .utils import Encoding, Minifcation
 
 
 class Cache:
-	data: Dict[Tuple[str, str, bool], bytes]
+	data: Dict[Tuple[str, Encoding, Minifcation], bytes]
 
 
 	def __init__(self) -> None:
@@ -18,19 +19,19 @@ class Cache:
 	@d_log(level=2, with_args=[1, 2, 3])
 	def get(self,
 			request_path: str,
-			encoding: str,
-			is_minified: bool,
+			encoding: Encoding,
+			minification: Minifcation,
 	) -> Union[bytes, None]:
 		file = request_path.replace("/static/", "")
-		return self.data.get((file, encoding, is_minified), None)
+		return self.data.get((file, encoding, minification), None)
 
 
 	@d_log(level=2, with_args=[1, 2, 3])
 	def insert(self,
 			request_path: str,
-			encoding: str,
-			is_minified: bool,
+			encoding: Encoding,
+			minification: Minifcation,
 			value: bytes,
 	) -> None:
 		file = request_path.replace("/static/", "")
-		self.data[(file, encoding, is_minified)] = value
+		self.data[(file, encoding, minification)] = value
