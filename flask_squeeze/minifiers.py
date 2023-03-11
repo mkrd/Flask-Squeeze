@@ -6,50 +6,56 @@ import rcssmin
 class MinifyHTMLParser(HTMLParser):
 	def __init__(self):
 		super().__init__()
-		self.minified_html = ""
+		self.minified_html = []
+
+	def write(self, data: str) -> None:
+		self.minified_html.append(data)
+
+	def get_minified_html(self) -> str:
+		return "".join(self.minified_html)
 
 	def handle_decl(self, decl: str) -> None:
-		self.minified_html += f"<!{decl}>"
+		self.write(f"<!{decl}>")
 
 	def unknown_decl(self, data: str) -> None:
-		self.minified_html += f"<!{data}>"
+		self.write(f"<!{data}>")
 
 	def handle_pi(self, data):
-		self.minified_html += f"<?{data}>"
+		self.write(f"<?{data}>")
 
 	def handle_startendtag(self, tag, attrs):
 		self.add_tag(tag, attrs, "/>")
 
 	def handle_entityref(self, name):
-		self.minified_html += f"&{name};"
+		self.write(f"&{name};")
 
 	def handle_charref(self, name):
-		self.minified_html += f"&#x{name};"
+		self.write(f"&#x{name};")
 
 	def handle_starttag(self, tag, attrs):
 		self.add_tag(tag, attrs, ">")
 
 	# TODO Rename this here and in `handle_startendtag` and `handle_starttag`
 	def add_tag(self, tag, attrs, end_tag):
-		self.minified_html += f"<{tag}"
+		self.write(f"<{tag}")
 		for attr in attrs:
-			self.minified_html += f' {attr[0]}'
+			self.write(f' {attr[0]}')
 			if attr[1] is not None:
-				self.minified_html += f'="{attr[1]}"'
-		self.minified_html += end_tag
+				self.write(f'="{attr[1]}"')
+		self.write(end_tag)
 
 	def handle_endtag(self, tag):
-		self.minified_html += f"</{tag}>"
+		self.write(f"</{tag}>")
 
 	def handle_data(self, data):
 		if self.lasttag == "style":
-			self.minified_html += minify_css(data).strip()
+			self.write(minify_css(data).strip())
 		elif self.lasttag == "script":
-			self.minified_html += minify_js(data).strip()
+			self.write(minify_js(data).strip())
 		elif self.lasttag in ["textarea", "pre", "code"]:
-			self.minified_html += data
+			self.write(data)
 		else:
-			self.minified_html += data.strip()
+			self.write(data.strip())
 
 
 
@@ -63,7 +69,7 @@ def minify_html(html_text: str) -> str:
 
 	parser = MinifyHTMLParser()
 	parser.feed(html_text)
-	return parser.minified_html
+	return parser.get_minified_html()
 
 
 
