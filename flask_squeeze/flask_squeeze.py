@@ -69,7 +69,6 @@ class Squeeze(object):
 
 		if app.config["COMPRESS_FLAG"]:
 			app.after_request(self.after_request)
-			app.before_request(self.before_request)
 
 
 	# Minification
