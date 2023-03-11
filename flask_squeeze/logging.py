@@ -1,3 +1,4 @@
+from typing import Callable
 import time
 import functools
 
@@ -41,7 +42,7 @@ class d_log:
 		self.with_kwargs = with_kwargs if with_kwargs is not None else []
 
 
-	def __call__(self, method):
+	def __call__(self, method) -> Callable:
 		@functools.wraps(method)
 		def wrapper(*args, **kwargs):
 			if not current_app.config["COMPRESS_VERBOSE_LOGGING"]:

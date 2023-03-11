@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Generator
+from typing import Tuple, Dict, Generator, Callable
 from contextlib import contextmanager
 import functools
 import time
@@ -37,7 +37,7 @@ class add_debug_header:
 				return kwarg
 		raise ValueError("You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg.")
 
-	def __call__(self, method):
+	def __call__(self, method) -> Callable:
 		@functools.wraps(method)
 		def wrapper(*args, **kwargs):
 			if not current_app.config["COMPRESS_ADD_DEBUG_HEADERS"]:

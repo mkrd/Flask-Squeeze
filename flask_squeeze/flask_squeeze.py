@@ -1,4 +1,3 @@
-from typing import Union
 import gzip
 import time
 import zlib
@@ -71,11 +70,6 @@ class Squeeze(object):
 		if app.config["COMPRESS_FLAG"]:
 			app.after_request(self.after_request)
 			app.before_request(self.before_request)
-
-
-	def before_request(self) -> None:
-		""" Called before each request. """
-		self.before_request_t0 = time.perf_counter()
 
 
 	# Minification
@@ -268,9 +262,5 @@ class Squeeze(object):
 		self.recompute_headers(response, original_content_length)
 
 		log(1, f"cache {self.cache}")
-		log(1, (
-			"Flask Squeeze: Time from request to response: "
-			f"{(time.perf_counter() - self.before_request_t0) * 1000:.1f}ms"
-		))
 
 		return response
