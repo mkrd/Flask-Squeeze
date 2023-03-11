@@ -4,8 +4,8 @@ import rcssmin
 
 
 class MinifyHTMLParser(HTMLParser):
-	def __init__(self):
-		super().__init__()
+	def __init__(self, convert_charrefs: bool) -> None:
+		super().__init__(convert_charrefs=convert_charrefs)
 		self.minified_html = []
 
 	def write(self, data: str) -> None:
@@ -30,12 +30,11 @@ class MinifyHTMLParser(HTMLParser):
 		self.write(f"&{name};")
 
 	def handle_charref(self, name):
-		self.write(f"&#x{name};")
+		self.write(f"&#{name};")
 
 	def handle_starttag(self, tag, attrs):
 		self.add_tag(tag, attrs, ">")
 
-	# TODO Rename this here and in `handle_startendtag` and `handle_starttag`
 	def add_tag(self, tag, attrs, end_tag):
 		self.write(f"<{tag}")
 		for attr in attrs:
@@ -67,7 +66,7 @@ def minify_html(html_text: str) -> str:
 	respectively.
 	"""
 
-	parser = MinifyHTMLParser()
+	parser = MinifyHTMLParser(convert_charrefs=False)
 	parser.feed(html_text)
 	return parser.get_minified_html()
 
