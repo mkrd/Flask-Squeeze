@@ -6,7 +6,6 @@ import secrets
 import random
 
 from flask import Flask, Response, request
-import htmlmin
 import brotli
 
 from .cache import (
@@ -98,8 +97,6 @@ class Squeeze(object):
 		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
 			if self.minify_choice == Minifcation.html:
 				minified = minify_html(data)
-				# minified = htmlmin.main.minify(data)
-
 			elif self.minify_choice == Minifcation.css:
 				minified = minify_css(data)
 			elif self.minify_choice == Minifcation.js:
