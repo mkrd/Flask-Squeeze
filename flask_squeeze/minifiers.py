@@ -1,6 +1,7 @@
 from html.parser import HTMLParser
-import rjsmin
+
 import rcssmin
+import rjsmin
 
 
 class MinifyHTMLParser(HTMLParser):
