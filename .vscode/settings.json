@@ -1,7 +1,0 @@
-{
-    "python.pythonPath": ".venv/bin/python3.9",
-    "python.linting.pylintEnabled": false,
-    "python.linting.enabled": true,
-    "python.linting.flake8Enabled": false,
-    "python.linting.pycodestyleEnabled": true
-}
