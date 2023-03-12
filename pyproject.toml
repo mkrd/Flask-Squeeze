@@ -23,7 +23,6 @@ rjsmin = "^1"
 rcssmin = "^1"
 
 [tool.poetry.dev-dependencies]
-pycodestyle = "^2.10.0"
 pytest-cov = "^4.0.0"
 
 [build-system]
@@ -31,6 +30,21 @@ requires = ["poetry>=0.12"]
 build-backend = "poetry.masonry.api"
 
 [tool.ruff]
-ignore = ["E501"]
-extend-select = ["I", "C4", "SIM", "TCH", "ANN"]
 show-fixes = true
+select = [
+	"ANN", # annotations
+    "B", # bugbear
+    "C", # comprehensions
+    "E", # style errors
+    "F", # flakes
+    "I", # import sorting
+    "M", # meta
+    "N", # naming
+    "U", # upgrade
+    "W", # style warnings
+    "YTT", # sys.version
+]
+ignore = [
+	"E501", # line length
+	"UP007", # use X | Y for union (not possible in python 3.8)
+]
