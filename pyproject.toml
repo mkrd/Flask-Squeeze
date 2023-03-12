@@ -32,5 +32,5 @@ build-backend = "poetry.masonry.api"
 
 [tool.ruff]
 ignore = ["E501"]
-extend-select = ["C4", "SIM", "TCH", "ANN201", "ANN203", "ANN204", "ANN205", "ANN206"]
+extend-select = ["I", "C4", "SIM", "TCH", "ANN"]
 show-fixes = true
