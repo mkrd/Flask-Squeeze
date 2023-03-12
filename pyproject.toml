@@ -45,6 +45,8 @@ select = [
     "YTT", # sys.version
 ]
 ignore = [
+	"ANN101", # missing type annotation for self
 	"E501", # line length
 	"UP007", # use X | Y for union (not possible in python 3.8)
+
 ]
