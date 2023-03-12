@@ -1,43 +1,38 @@
-from typing import Union
 import gzip
+import random
+import secrets
 import time
 import zlib
-import secrets
-import random
+from typing import Union
 
-from flask import Flask, Response, request
 import brotli
+from flask import Flask, Response, request
 
 from .cache import (
 	Cache,
 )
-
+from .debugging import (
+	add_debug_header,
+	ctx_add_debug_header,
+)
 from .logging import (
 	d_log,
 	log,
 )
-
-from .debugging import (
-	ctx_add_debug_header,
-	add_debug_header,
-)
-
-from .utils import (
-	choose_encoding,
-	choose_minification,
-	Encoding,
-	Minifcation,
-)
-
 from .minifiers import (
-	minify_html,
 	minify_css,
+	minify_html,
 	minify_js,
 )
+from .utils import (
+	Encoding,
+	Minifcation,
+	choose_encoding,
+	choose_minification,
+)
 
 
-
-class Squeeze(object):
+class Squeeze:
 
 	__slots__ = "cache", "app", "encode_choice", "minify_choice", "resource_type"
 	cache: Cache
