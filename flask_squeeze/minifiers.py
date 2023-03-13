@@ -1,75 +1,51 @@
-from html.parser import HTMLParser
-
 import rcssmin
 import rjsmin
-
-
-class MinifyHTMLParser(HTMLParser):
-	def __init__(self, convert_charrefs: bool) -> None:
-		super().__init__(convert_charrefs=convert_charrefs)
-		self.minified_html = []
-
-	def write(self, data: str) -> None:
-		self.minified_html.append(data)
-
-	def get_minified_html(self) -> str:
-		return "".join(self.minified_html)
-
-	def handle_decl(self, decl: str) -> None:
-		self.write(f"<!{decl}>")
-
-	def unknown_decl(self, data: str) -> None:
-		self.write(f"<!{data}>")
-
-	def handle_pi(self, data):
-		self.write(f"<?{data}>")
-
-	def handle_startendtag(self, tag, attrs):
-		self.add_tag(tag, attrs, "/>")
-
-	def handle_entityref(self, name):
-		self.write(f"&{name};")
-
-	def handle_charref(self, name):
-		self.write(f"&#{name};")
-
-	def handle_starttag(self, tag, attrs):
-		self.add_tag(tag, attrs, ">")
-
-	def add_tag(self, tag, attrs, end_tag):
-		self.write(f"<{tag}")
-		for attr in attrs:
-			self.write(f' {attr[0]}')
-			if attr[1] is not None:
-				self.write(f'="{attr[1]}"')
-		self.write(end_tag)
-
-	def handle_endtag(self, tag):
-		self.write(f"</{tag}>")
-
-	def handle_data(self, data):
-		if self.lasttag == "style":
-			self.write(minify_css(data).strip())
-		elif self.lasttag == "script":
-			self.write(minify_js(data).strip())
-		elif self.lasttag in ["textarea", "pre", "code"]:
-			self.write(data)
-		else:
-			self.write(data.strip())
-
+from lxml import etree
+from lxml.html import fragments_fromstring
 
 
 def minify_html(html_text: str) -> str:
 	"""
-	Minifies HTML by removing white space and comments.
-	Additionally it uses minify_css and minify_js functions
-	to minify css in style tags and js in script tags
-	respectively.
+		Minifies HTML by removing white space and comments.
+		Additionally it uses minify_css and minify_js functions
+		to minify css in style tags and js in script tags
+		respectively.
 	"""
+	try:
+		minified: list[str] = []
+		parser = etree.HTMLParser(recover=False)
+		html_fragments: list[etree._Element] = fragments_fromstring(html_text,
+			parser=parser
+		)
 
-	parser = MinifyHTMLParser(convert_charrefs=False)
-	parser.feed(html_text)
-	return parser.get_minified_html()
+		for fragment in html_fragments:
+			if isinstance(fragment, str):
+				minified.append(fragment)
+				continue
+
+			for element in fragment.iter():
+				element: etree._Element = element
+				print(element)
+				print(element.text)
+				print(element.tail)
+				if element.tag in ["pre", "code", "textarea"]:
+					pass
+				elif element.tag == "style":
+					element.text = minify_css(element.text)
+				elif element.tag == "script":
+					element.text = minify_js(element.text)
+				else:
+					if element.text:
+						element.text = element.text.strip()
+					if element.tail:
+						element.tail = element.tail.strip()
+				element_bytes: bytes = etree.tostring(element, pretty_print=False)
+				minified.append(element_bytes.decode("utf-8"))
+
+		return "".join(minified)
+
+	except Exception as e:
+		return html_text
 
 
 
@@ -80,3 +56,31 @@ def minify_css(data: str) -> str:
 
 def minify_js(data: str) -> str:
 	return rjsmin.jsmin(data, keep_bang_comments=False)
+
+
+
+test_html = '''
+
+		Leading and trailing white space is removed
+		<a href="fo&quot;o">&lt;</a>
+		<a href="fo&quot;o">&lt;</a>
+		<div cl="lol">
+			lel
+			<pre>
+				lol
+			</pre>
+
+		</div>
+		<a href="fo&quot;o">&lt;</a>
+
+		<a href="fo&quot;o">&lt;</a>
+
+		Trailer
+
+'''
+
+
+
+
+
+broken_html = "<html><head><title>test<body><h1>page title</h3>"
