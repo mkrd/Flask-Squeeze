@@ -13,10 +13,7 @@ def minify_html(html_text: str) -> str:
 		respectively.
 	"""
 
-	# TODO: Find robust way to minify html
-	# stdlib HTMLParser unescapes html, such that output can be a XXS vulnerability
-	# lxml.html.fragments_fromstring also parses html inside script tags, which is not desired
-	# lxml.html.fromstring does not parse html inside script tags, but does not parse html fragments
+	# TODO: Find robust way to minify 
 
 	# minified: list[str] = []
 	# parser = etree.HTMLParser(recover=False)
