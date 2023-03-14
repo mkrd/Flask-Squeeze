@@ -248,14 +248,13 @@ class Squeeze:
 			return response
 
 		original_content_length = response.content_length
+		self.resource_type = "static" if "/static/" in request.path else "dynamic"
 
-		if "/static/" not in request.path:
+		if self.resource_type == "dynamic":
 			log(1, "Dynamic resource.")
-			self.resource_type = "dynamic"
 			self.run_for_dynamic_resource(response)
 		else:
 			log(1, "Static resource.")
-			self.resource_type = "static"
 			self.run_for_static_resource(response)
 
 		self.recompute_headers(response, original_content_length)
