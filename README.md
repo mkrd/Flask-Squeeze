@@ -7,7 +7,7 @@
 Flask-Squeeze is a Flask extension that automatically:
 - **Minifies** repsonses with the mimetypes javascript and css
 - **Compresses** all responses with brotli if the browser supports it, or gzip if the browser supports it!
-- **Secured** against the BREACH exploit
+- **Protects** against the BREACH exploit
 - **Caches** static files so that they don't have to be re-compressed. The cache will be cleared each time Flask restarts. Files are considered to be static if they contain ".../static/..." in their request path.
 
 ## Compatibility
