@@ -49,7 +49,6 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 ### Minification options
 | Option | Default | Description |
 | --- | --- | --- |
-| `COMPRESS_MINIFY_HTML` | `True` | Enable or disable HTML minification using htmlmin |
 | `COMPRESS_MINIFY_CSS` | `True` | Enable or disable css minification using rcssmin |
 | `COMPRESS_MINIFY_JS` | `True` | Enable or disable js minification using rjsmin |
 
