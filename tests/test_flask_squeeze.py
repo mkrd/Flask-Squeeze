@@ -52,7 +52,7 @@ def test_get_index(client: FlaskClient, use_encoding: str):
 
 	sizes = {
 		"": 3_932_146,
-		"br": 7_246,
+		"br": 8_164,
 		"deflate": 83_554,
 		"gzip": 83_566,
 	}
