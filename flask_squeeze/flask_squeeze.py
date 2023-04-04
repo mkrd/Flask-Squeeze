@@ -9,8 +9,8 @@ import brotli
 from flask import Flask, Response, request
 
 from .cache import MemoryCache
-from .debugging import add_debug_header, ctx_add_debug_header
-from .logging import d_log, log
+from .debug import add_debug_header, ctx_add_debug_header
+from .log import d_log, log
 from .minifiers import minify_css, minify_html, minify_js
 from .utils import Encoding, Minifcation
 
