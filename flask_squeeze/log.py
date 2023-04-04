@@ -24,7 +24,7 @@ def log(level: int, s: str) -> None:
 		print(_format_log(s, level, request, 92))
 
 
-class d_log:
+class d_log:  # noqa: N801
 	"""
 		decorator for logging.
 		level: indent level

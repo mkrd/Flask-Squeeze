@@ -23,7 +23,7 @@ def ctx_add_debug_header(header_name: str, response: Response) -> Generator:
 
 
 
-class add_debug_header:
+class add_debug_header:  # noqa: N801
 
 	def __init__(self, header_name: str) -> None:
 		self.header_name = header_name
