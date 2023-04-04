@@ -27,8 +27,8 @@ squeeze = Squeeze()
 def create_app():
     app = Flask(__name__)
     squeeze.init_app(app)
-    # Init all other extensions AFTER Flask-Squeeze
-    # ...
+    # Init all other extensions
+    # AFTER Flask-Squeeze
 
     return app
 ```
