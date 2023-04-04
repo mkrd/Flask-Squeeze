@@ -1,6 +1,6 @@
 from typing import Dict, Tuple, Union
 
-from .logging import d_log
+from .log import d_log
 from .utils import Encoding, Minifcation
 
 
