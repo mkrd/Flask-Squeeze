@@ -8,7 +8,7 @@ from flask import Response, current_app
 
 
 def _write_benchmark_debug_header(response: Response, header_name: str, t1: float, t2: float) -> None:
-	if current_app.config["COMPRESS_ADD_DEBUG_HEADERS"]:
+	if current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 		dur_ms_str = f"{(t2 - t1) * 1000:.1f}ms"
 		response.headers[header_name] = dur_ms_str
 
@@ -40,7 +40,7 @@ class add_debug_header:  # noqa: N801
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
 		def wrapper(*args, **kwargs):
-			if not current_app.config["COMPRESS_ADD_DEBUG_HEADERS"]:
+			if not current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 				return method(*args, **kwargs)
 
 			response = self.get_response(args, kwargs)

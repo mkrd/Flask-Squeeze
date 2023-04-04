@@ -7,7 +7,7 @@ from werkzeug.wrappers import Response
 @pytest.fixture
 def client():
 	app = create_app({"TESTING": True})
-	app.config.update({"COMPRESS_LEVEL_DYNAMIC": 1})
+	app.config.update({"SQUEEZE_LEVEL_DYNAMIC": 1})
 	with app.test_client() as test_client:
 		yield test_client
 
@@ -63,7 +63,7 @@ def test_get_index(client: FlaskClient, use_encoding: str):
 
 def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bool):
 	print("test_get_css_file with", use_encoding, "minify:", use_minify_css)
-	client.application.config.update({"COMPRESS_MINIFY_CSS": use_minify_css})
+	client.application.config.update({"SQUEEZE_MINIFY_CSS": use_minify_css})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	length = r.headers.get("Content-Length")
@@ -88,7 +88,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 
 def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool):
 	print("test_get_js_file with", use_encoding, "minify:", use_minify_js)
-	client.application.config.update({"COMPRESS_MINIFY_JS": use_minify_js})
+	client.application.config.update({"SQUEEZE_MINIFY_JS": use_minify_js})
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	assert use_encoding == r.headers.get("Content-Encoding", "")
@@ -96,7 +96,7 @@ def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool
 
 
 def test_get_jquery_no_minify(client: FlaskClient):
-	client.application.config.update({"COMPRESS_MINIFY_JS": False})
+	client.application.config.update({"SQUEEZE_MINIFY_JS": False})
 	r_orig = client.get("/static/jquery.js", headers={})
 	assert content_length_correct(r_orig)
 	assert "Content-Encoding" not in r_orig.headers
@@ -105,7 +105,7 @@ def test_get_jquery_no_minify(client: FlaskClient):
 
 
 def test_get_from_cache(client: FlaskClient, use_encoding: str):
-	client.application.config.update({"COMPRESS_MINIFY_JS": False})
+	client.application.config.update({"SQUEEZE_MINIFY_JS": False})
 	r   = client.get("/static/jquery.min.js", headers={"Accept-Encoding": use_encoding})
 	r_2 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": use_encoding})
 	assert r.data == r_2.data

@@ -14,8 +14,8 @@ def create_app(test_config=None):
 		ENV="development",
 		DEBUG=True,
 		SECRET_KEY="dev",
-		COMPRESS_MIN_SIZE=0,
-		COMPRESS_VERBOSE_LOGGING=True,
+		SQUEEZE_MIN_SIZE=0,
+		SQUEEZE_VERBOSE_LOGGING=True,
 	)
 
 	squeeze.init_app(app)

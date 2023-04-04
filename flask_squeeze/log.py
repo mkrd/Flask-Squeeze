@@ -20,7 +20,7 @@ def _format_log(
 
 
 def log(level: int, s: str) -> None:
-	if current_app.config["COMPRESS_VERBOSE_LOGGING"]:
+	if current_app.config["SQUEEZE_VERBOSE_LOGGING"]:
 		print(_format_log(s, level, request, 92))
 
 
@@ -46,7 +46,7 @@ class d_log:  # noqa: N801
 	def __call__(self, method) -> Callable:
 		@functools.wraps(method)
 		def wrapper(*args, **kwargs):
-			if not current_app.config["COMPRESS_VERBOSE_LOGGING"]:
+			if not current_app.config["SQUEEZE_VERBOSE_LOGGING"]:
 				return method(*args, **kwargs)
 
 			chosen_args = [f"{a}" for i, a in enumerate(args) if i in self.with_args]
