@@ -21,7 +21,6 @@ flask = ">1"
 brotli = "^1"
 rjsmin = "^1"
 rcssmin = "^1"
-lxml = "^4.9.0"
 
 [tool.poetry.dev-dependencies]
 pytest-cov = "^4.0.0"
@@ -49,4 +48,5 @@ ignore = [
 	"ANN101", # missing type annotation for self
 	"E501", # line length
 	"UP007", # use X | Y for union (not possible in python 3.8)
+    "W191", # indentation contains tabs
 ]
