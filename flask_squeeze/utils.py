@@ -1,7 +1,11 @@
-from enum import Enum
-from typing import Union
+from __future__ import annotations
 
-from flask import Request, Response, current_app
+from enum import Enum
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+	from flask import Config
+	from werkzeug.datastructures import Headers
 
 
 class Encoding(Enum):
@@ -9,6 +13,27 @@ class Encoding(Enum):
 	deflate = "deflate"
 	br = "br"
 
+	@classmethod
+	def from_headers_and_config(
+		cls: Encoding,
+		headers: Headers,
+		config: Config,
+	) -> Union[Encoding, None]:
+		"""
+			If the client supports brotli, gzip, or deflate, return the best encoding.
+			If the client does not accept any of these encodings, or if the config
+			variable COMPRESS_FLAG is False, return None.
+		"""
+		if not config["COMPRESS_FLAG"]:
+			return None
+		encoding = headers.get("Accept-Encoding", "").lower()
+		if "br" in encoding:
+			return cls.br
+		if "deflate" in encoding:
+			return cls.deflate
+		if "gzip" in encoding:
+			return cls.gzip
+		return None
 
 
 class Minifcation(Enum):
@@ -16,28 +41,24 @@ class Minifcation(Enum):
 	css = "css"
 	html = "html"
 
-
-
-def choose_encoding(request: Request) -> Union[Encoding, None]:
-	if not current_app.config["COMPRESS_FLAG"]:
+	@classmethod
+	def from_mimetype_and_config(
+		cls: Minifcation,
+		mimetype: str,
+		config: Config,
+	) -> Union[Minifcation, None]:
+		"""
+			Based on the response mimetype:
+			- `js` or `json`, and `COMPRESS_MINIFY_JS=True`: return `Minifcation.js`
+			- `css` and `COMPRESS_MINIFY_CSS=True`: return `Minifcation.css`
+			-  `html` and `COMPRESS_MINIFY_HTML=True`: return `Minifcation.html`
+			- Otherwise, return `None`
+		"""
+		is_js_or_json = mimetype.endswith("javascript") or mimetype.endswith("json")
+		if is_js_or_json and config["COMPRESS_MINIFY_JS"]:
+			return cls.js
+		if mimetype.endswith("css") and config["COMPRESS_MINIFY_CSS"]:
+			return cls.css
+		if mimetype.endswith("html") and config["COMPRESS_MINIFY_HTML"]:
+			return cls.html
 		return None
-	encoding = request.headers.get("Accept-Encoding", "").lower()
-	if "br" in encoding:
-		return Encoding.br
-	elif "deflate" in encoding:
-		return Encoding.deflate
-	elif "gzip" in encoding:
-		return Encoding.gzip
-	return None
-
-
-
-def choose_minification(response: Response) -> Union[Minifcation, None]:
-	mimetype = response.mimetype
-	if (mimetype.endswith("javascript") or mimetype.endswith("json")) and current_app.config["COMPRESS_MINIFY_JS"]:
-		return Minifcation.js
-	elif mimetype.endswith("css") and current_app.config["COMPRESS_MINIFY_CSS"]:
-		return Minifcation.css
-	elif mimetype.endswith("html") and current_app.config["COMPRESS_MINIFY_HTML"]:
-		return Minifcation.html
-	return None

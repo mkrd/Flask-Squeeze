@@ -27,8 +27,6 @@ from .minifiers import (
 from .utils import (
 	Encoding,
 	Minifcation,
-	choose_encoding,
-	choose_minification,
 )
 
 
@@ -225,6 +223,10 @@ class Squeeze:
 	def after_request(self, response: Response) -> Response:
 		log(1, f"Enter after_request({response})")
 
+		if response.status_code is None or response.content_length is None:
+			log(1, "Response status code or content length is None. RETURN")
+			return response
+
 		if response.status_code < 200 or response.status_code >= 300:
 			log(1, "Response status code is not ok. RETURN")
 			return response
@@ -240,8 +242,14 @@ class Squeeze:
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		self.encode_choice = choose_encoding(request)
-		self.minify_choice = choose_minification(response)
+		self.encode_choice = Encoding.from_headers_and_config(
+			request.headers,
+			self.app.config,
+		)
+		self.minify_choice = Minifcation.from_mimetype_and_config(
+			response.mimetype,
+			self.app.config,
+		)
 
 		if not self.encode_choice and not self.minify_choice:
 			log(1, "No compression or minification requested. RETURN")
