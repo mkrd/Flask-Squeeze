@@ -37,7 +37,7 @@ class add_debug_header:
 				return kwarg
 		raise ValueError("You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg.")
 
-	def __call__(self, method) -> Callable:
+	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
 		def wrapper(*args, **kwargs):
 			if not current_app.config["COMPRESS_ADD_DEBUG_HEADERS"]:
