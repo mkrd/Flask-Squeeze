@@ -8,32 +8,17 @@ from typing import Union
 import brotli
 from flask import Flask, Response, request
 
-from .cache import (
-	Cache,
-)
-from .debugging import (
-	add_debug_header,
-	ctx_add_debug_header,
-)
-from .logging import (
-	d_log,
-	log,
-)
-from .minifiers import (
-	minify_css,
-	minify_html,
-	minify_js,
-)
-from .utils import (
-	Encoding,
-	Minifcation,
-)
+from .cache import MemoryCache
+from .debugging import add_debug_header, ctx_add_debug_header
+from .logging import d_log, log
+from .minifiers import minify_css, minify_html, minify_js
+from .utils import Encoding, Minifcation
 
 
 class Squeeze:
 
 	__slots__ = "cache", "app", "encode_choice", "minify_choice", "resource_type"
-	cache: Cache
+	cache: MemoryCache
 	app: Flask
 	encode_choice: Union[Encoding, None]
 	minify_choice: Union[Minifcation, None]
@@ -42,7 +27,7 @@ class Squeeze:
 
 	def __init__(self, app: Flask = None) -> None:
 		""" Initialize Flask-Squeeze with or without app. """
-		self.cache = Cache()
+		self.cache = MemoryCache()
 		self.app = app
 		if app is not None:
 			self.init_app(app)

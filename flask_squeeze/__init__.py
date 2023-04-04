@@ -1,1 +1,1 @@
-from . flask_squeeze import Squeeze
+from .flask_squeeze import Squeeze

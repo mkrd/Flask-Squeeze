@@ -1,10 +1,10 @@
-from typing import Tuple, Dict, Generator, Callable
-from contextlib import contextmanager
 import functools
 import time
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from typing import Dict, Tuple
 
 from flask import Response, current_app
-
 
 
 def _write_benchmark_debug_header(response: Response, header_name: str, t1: float, t2: float) -> None:

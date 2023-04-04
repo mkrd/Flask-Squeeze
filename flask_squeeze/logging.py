@@ -1,9 +1,8 @@
-from typing import Callable
-import time
 import functools
+import time
+from typing import Callable
 
 from flask import Request, current_app, request
-
 
 
 def _format_log(
@@ -20,11 +19,9 @@ def _format_log(
 	return res
 
 
-
 def log(level: int, s: str) -> None:
 	if current_app.config["COMPRESS_VERBOSE_LOGGING"]:
 		print(_format_log(s, level, request, 92))
-
 
 
 class d_log:
@@ -36,7 +33,11 @@ class d_log:
 	"""
 
 
-	def __init__(self, level=0, with_args=None, with_kwargs=None) -> None:
+	def __init__(self,
+		level: int = 0,
+		with_args: list = None,
+		with_kwargs: list = None,
+	) -> None:
 		self.level = level
 		self.with_args = with_args if with_args is not None else []
 		self.with_kwargs = with_kwargs if with_kwargs is not None else []

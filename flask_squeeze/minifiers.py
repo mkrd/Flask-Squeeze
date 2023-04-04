@@ -1,9 +1,6 @@
 import rcssmin
 import rjsmin
 
-# from lxml import etree
-# from lxml.html import fragments_fromstring
-
 
 def minify_html(html_text: str) -> str:
 	"""
@@ -13,7 +10,7 @@ def minify_html(html_text: str) -> str:
 		respectively.
 	"""
 
-	# TODO: Find robust way to minify 
+	# TODO: Find robust way to minify
 
 	# minified: list[str] = []
 	# parser = etree.HTMLParser(recover=False)
