@@ -36,24 +36,29 @@ class Squeeze:
 	def init_app(self, app: Flask) -> None:
 		""" Initialize Flask-Squeeze with app """
 		self.app = app
-		app.config.setdefault("COMPRESS_FLAG", True)
-		app.config.setdefault("COMPRESS_MIN_SIZE", 500)
+		# Compression options
+		app.config.setdefault("SQUEEZE_COMPRESS", True)
+		app.config.setdefault("SQUEEZE_MIN_SIZE", 500)
+		# Compression levels
+		app.config.setdefault("SQUEEZE_LEVEL_GZIP_STATIC", 9)
+		app.config.setdefault("SQUEEZE_LEVEL_GZIP_DYNAMIC", 1)
+		app.config.setdefault("SQUEEZE_LEVEL_BROTLI_STATIC", 11)
+		app.config.setdefault("SQUEEZE_LEVEL_BROTLI_DYNAMIC", 1)
+		app.config.setdefault("SQUEEZE_LEVEL_DEFLATE_STATIC", 9)
+		app.config.setdefault("SQUEEZE_LEVEL_DEFLATE_DYNAMIC", 1)
+		# Minification options
+		app.config.setdefault("SQUEEZE_MINIFY_JS", True)
+		app.config.setdefault("SQUEEZE_MINIFY_CSS", True)
+		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
+		# Logging options
+		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
+		app.config.setdefault("SQUEEZE_ADD_DEBUG_HEADERS", False)
 
-		app.config.setdefault("COMPRESS_LEVEL_GZIP_STATIC", 9)
-		app.config.setdefault("COMPRESS_LEVEL_GZIP_DYNAMIC", 1)
-		app.config.setdefault("COMPRESS_LEVEL_BROTLI_STATIC", 11)
-		app.config.setdefault("COMPRESS_LEVEL_BROTLI_DYNAMIC", 1)
-		app.config.setdefault("COMPRESS_LEVEL_DEFLATE_STATIC", 9)
-		app.config.setdefault("COMPRESS_LEVEL_DEFLATE_DYNAMIC", 1)
-
-		app.config.setdefault("COMPRESS_MINIFY_JS", True)
-		app.config.setdefault("COMPRESS_MINIFY_CSS", True)
-		app.config.setdefault("COMPRESS_MINIFY_HTML", True)
-
-		app.config.setdefault("COMPRESS_VERBOSE_LOGGING", False)
-		app.config.setdefault("COMPRESS_ADD_DEBUG_HEADERS", False)
-
-		if app.config["COMPRESS_FLAG"]:
+		if (app.config["SQUEEZE_COMPRESS"] or
+			app.config["SQUEEZE_MINIFY_JS"] or
+			app.config["SQUEEZE_MINIFY_CSS"] or
+			app.config["SQUEEZE_MINIFY_HTML"]
+		):
 			app.after_request(self.after_request)
 
 
@@ -91,12 +96,12 @@ class Squeeze:
 
 	def select_quality_from_config(self) -> str:
 		options = {
-			(Encoding.br, "static"):       "COMPRESS_LEVEL_BROTLI_STATIC",
-			(Encoding.br, "dynamic"):      "COMPRESS_LEVEL_BROTLI_DYNAMIC",
-			(Encoding.deflate, "static"):  "COMPRESS_LEVEL_DEFLATE_STATIC",
-			(Encoding.deflate, "dynamic"): "COMPRESS_LEVEL_DEFLATE_DYNAMIC",
-			(Encoding.gzip, "static"):     "COMPRESS_LEVEL_GZIP_STATIC",
-			(Encoding.gzip, "dynamic"):    "COMPRESS_LEVEL_GZIP_DYNAMIC",
+			(Encoding.br,      "static"):  "SQUEEZE_LEVEL_BROTLI_STATIC",
+			(Encoding.br,      "dynamic"): "SQUEEZE_LEVEL_BROTLI_DYNAMIC",
+			(Encoding.deflate, "static"):  "SQUEEZE_LEVEL_DEFLATE_STATIC",
+			(Encoding.deflate, "dynamic"): "SQUEEZE_LEVEL_DEFLATE_DYNAMIC",
+			(Encoding.gzip,    "static"):  "SQUEEZE_LEVEL_GZIP_STATIC",
+			(Encoding.gzip,    "dynamic"): "SQUEEZE_LEVEL_GZIP_DYNAMIC",
 		}
 		return self.app.config[options[(self.encode_choice, self.resource_type)]]
 
@@ -216,7 +221,7 @@ class Squeeze:
 			log(1, "Response status code is not ok. RETURN")
 			return response
 
-		if response.content_length < self.app.config["COMPRESS_MIN_SIZE"]:
+		if response.content_length < self.app.config["SQUEEZE_MIN_SIZE"]:
 			log(1, "Response size is smaller than the defined minimum. RETURN")
 			return response
 
