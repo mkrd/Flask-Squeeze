@@ -3,7 +3,7 @@ import random
 import secrets
 import time
 import zlib
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
 
 import brotli
 from flask import Flask, Response, request
@@ -22,7 +22,7 @@ from .models import (
 class Squeeze:
 
 	__slots__ = "cache", "app", "encode_choice", "minify_choice", "resource_type"
-	cache: Dict[str, bytes]
+	cache: Dict[Tuple[str, str], bytes]
 	app: Flask
 	encode_choice: Union[Encoding, None]
 	minify_choice: Union[Minifcation, None]
@@ -179,7 +179,8 @@ class Squeeze:
 
 
 		# Serve from cache if possible
-		from_cache = self.cache.get(request.path, None)
+		encode_choice_str = self.encode_choice.value if self.encode_choice else "none"
+		from_cache = self.cache.get((request.path, encode_choice_str), None)
 		if from_cache is not None:
 			log(2, "Found in cache. RETURN")
 			response.direct_passthrough = False
@@ -196,7 +197,7 @@ class Squeeze:
 
 		# Assert: At least one of minify or compress was run
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-		self.cache[request.path] = response.get_data(as_text=False)
+		self.cache[(request.path, encode_choice_str)] = response.get_data(as_text=False)
 
 
 
