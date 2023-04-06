@@ -12,7 +12,12 @@ from .cache import MemoryCache
 from .debug import add_debug_header, ctx_add_debug_header
 from .log import d_log, log
 from .minifiers import minify_css, minify_html, minify_js
-from .models import Encoding, Minifcation
+from .models import (
+	Encoding,
+	Minifcation,
+	choose_encoding_from_headers_and_config,
+	choose_minification_from_mimetype_and_config,
+)
 
 
 class Squeeze:
@@ -142,9 +147,9 @@ class Squeeze:
 			- No caching is done.
 		"""
 
-		if self.minify_choice:
+		if self.minify_choice is not None:
 			self.execute_minify(response)
-		if self.encode_choice:
+		if self.encode_choice is not None:
 			self.execute_compress(response)
 		# Protect against BREACH attack
 		if self.encode_choice:
@@ -174,9 +179,9 @@ class Squeeze:
 
 		# Assert: not in cache
 
-		if self.minify_choice:
+		if self.minify_choice is not None:
 			self.execute_minify(response)
-		if self.encode_choice:
+		if self.encode_choice is not None:
 			self.execute_compress(response)
 
 		# If compression or minification was done, insert into cache
@@ -188,9 +193,10 @@ class Squeeze:
 
 
 	@d_log(level=1, with_args=[1, 2])
-	def recompute_headers(self,
-			response: Response,
-			original_content_length: int
+	def recompute_headers(
+		self,
+		response: Response,
+		original_content_length: int
 	) -> None:
 		# If direct_passthrough is set, the response was not modified.
 		if response.direct_passthrough:
@@ -233,16 +239,16 @@ class Squeeze:
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		self.encode_choice = Encoding.from_headers_and_config(
+		self.encode_choice = choose_encoding_from_headers_and_config(
 			request.headers,
 			self.app.config,
 		)
-		self.minify_choice = Minifcation.from_mimetype_and_config(
+		self.minify_choice = choose_minification_from_mimetype_and_config(
 			response.mimetype,
 			self.app.config,
 		)
 
-		if not self.encode_choice and not self.minify_choice:
+		if self.encode_choice is None and self.minify_choice is None:
 			log(1, "No compression or minification requested. RETURN")
 			return response
 
