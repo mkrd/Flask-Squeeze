@@ -3,7 +3,7 @@ import random
 import secrets
 import time
 import zlib
-from typing import Dict, Union, Tuple
+from typing import Dict, Tuple, Union
 
 import brotli
 from flask import Flask, Response, request
@@ -146,22 +146,22 @@ class Squeeze:
 		))
 
 		response.set_data(compressed_data)
+		self.set_header_after_compression(response)
 
 
 
 	@d_log(level=1)
 	def run_for_dynamic_resource(self, response: Response) -> None:
 		"""
-			Compress a dynamic resource.
-			- No caching is done.
+			Compress a dynamic resource. No caching is done.
 		"""
 
-		if self.minify_choice is not None:
+		if isinstance(self.minify_choice, Minifcation):
 			self.execute_minify(response)
-		if self.encode_choice is not None:
+
+		if isinstance(self.encode_choice, Encoding):
 			self.execute_compress(response)
-		# Protect against BREACH attack
-		if self.encode_choice:
+			# Protect against BREACH attack
 			tx = 2 if int(time.time() ** 3.141592) % 2 else 1
 			rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
 			response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
@@ -174,9 +174,9 @@ class Squeeze:
 		response: Response,
 	) -> None:
 		"""
-			Compress a static resource.
+			Serve a static resource from cache if possible.
+			Otherwise, compress it, cache it and serve it.
 		"""
-
 
 		# Serve from cache if possible
 		encode_choice_str = self.encode_choice.value if self.encode_choice else "none"
@@ -190,37 +190,45 @@ class Squeeze:
 
 		# Assert: not in cache
 
-		if self.minify_choice is not None:
+		if isinstance(self.minify_choice, Minifcation):
 			self.execute_minify(response)
-		if self.encode_choice is not None:
+		if isinstance(self.encode_choice, Encoding):
 			self.execute_compress(response)
 
 		# Assert: At least one of minify or compress was run
+
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 		self.cache[(request.path, encode_choice_str)] = response.get_data(as_text=False)
 
 
 
-	@d_log(level=1, with_args=[1, 2])
-	def recompute_headers(
+	def set_headers_if_content_length_changed(
 		self,
 		response: Response,
 		original_content_length: int
 	) -> None:
-		# If direct_passthrough is set, the response was not modified.
+		"""
+			Set the Content-Length header if it has changed.
+		"""
 		if response.direct_passthrough:
 			return
+		if original_content_length == response.content_length:
+			return
+		response.headers["Content-Length"] = response.content_length
+		response.headers["X-Uncompressed-Content-Length"] = original_content_length
 
-		if self.encode_choice:
-			response.headers["Content-Encoding"] = self.encode_choice.value
-			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
-			vary.add("Accept-Encoding")
-			vary.discard("")
-			response.headers["Vary"] = ",".join(vary)
 
-		if original_content_length != response.content_length:
-			response.headers["Content-Length"] = response.content_length
-			response.headers["X-Uncompressed-Content-Length"] = original_content_length
+
+	def set_header_after_compression(self, response: Response) -> None:
+		"""
+			Set the Content-Encoding header after compression.
+		"""
+		response.headers["Content-Encoding"] = self.encode_choice.value
+		vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
+		vary.add("Accept-Encoding")
+		vary.discard("")
+		response.headers["Vary"] = ",".join(vary)
+
 
 
 
@@ -265,13 +273,10 @@ class Squeeze:
 		self.resource_type = "static" if "/static/" in request.path else "dynamic"
 
 		if self.resource_type == "dynamic":
-			log(1, "Dynamic resource.")
 			self.run_for_dynamic_resource(response)
 		else:
-			log(1, "Static resource.")
 			self.run_for_static_resource(response)
-
-		self.recompute_headers(response, original_content_length)
+		self.set_headers_if_content_length_changed(response, original_content_length)
 
 		log(1, f"Cached: {self.cache.keys()}")
 
