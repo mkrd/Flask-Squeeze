@@ -15,7 +15,7 @@ def _write_benchmark_debug_header(response: Response, header_name: str, t1: floa
 
 
 @contextmanager
-def ctx_add_debug_header(header_name: str, response: Response) -> Generator:
+def ctx_add_benchmark_header(header_name: str, response: Response) -> Generator:
 	t1 = time.perf_counter()
 	yield
 	t2 = time.perf_counter()

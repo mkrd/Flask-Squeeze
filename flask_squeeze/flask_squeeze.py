@@ -8,7 +8,7 @@ from typing import Dict, Tuple, Union
 import brotli
 from flask import Flask, Response, request
 
-from .debug import add_debug_header, ctx_add_debug_header
+from .debug import add_debug_header, ctx_add_benchmark_header
 from .log import d_log, log
 from .minifiers import minify_css, minify_html, minify_js
 from .models import (
@@ -81,7 +81,7 @@ class Squeeze:
 
 		log(3, f"Minifying {self.minify_choice.value} resource")
 
-		with ctx_add_debug_header("X-Flask-Squeeze-Minify-Duration", response):
+		with ctx_add_benchmark_header("X-Flask-Squeeze-Minify-Duration", response):
 			if self.minify_choice == Minifcation.html:
 				minified = minify_html(data)
 			elif self.minify_choice == Minifcation.css:
@@ -127,7 +127,7 @@ class Squeeze:
 			f", and quality {quality}."
 		))
 
-		with ctx_add_debug_header("X-Flask-Squeeze-Compress-Duration", response):
+		with ctx_add_benchmark_header("X-Flask-Squeeze-Compress-Duration", response):
 			if self.encode_choice == Encoding.br:
 				compressed_data = brotli.compress(data, quality=quality)
 			elif self.encode_choice == Encoding.deflate:
