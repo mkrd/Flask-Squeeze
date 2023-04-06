@@ -48,6 +48,8 @@ def content_length_correct(r: Response) -> bool:
 ########
 
 
+
+
 def test_get_index(client: FlaskClient, use_encoding: str):
 	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
@@ -122,3 +124,22 @@ def test_get_from_cache(client: FlaskClient, use_encoding: str):
 def test_get_unknown_url(client: FlaskClient):
 	r = client.get("/static/unknown.js", headers={"Accept-Encoding": "gzip"})
 	assert r.status_code == 404
+
+
+
+def test_get_same_repeatedly(client: FlaskClient,):
+	client.application.config.update({"SQUEEZE_MINIFY_JS": True})
+	for i in range(100):
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "br"})
+		if i == 0:
+			assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		else:
+			assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+	for i in range(100):
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		if i == 0:
+			assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		else:
+			assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "br"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
