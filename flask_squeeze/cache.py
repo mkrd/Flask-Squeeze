@@ -1,7 +1,7 @@
 from typing import Dict, Tuple, Union
 
 from .log import d_log
-from .utils import Encoding, Minifcation
+from .models import Encoding, Minifcation
 
 
 class MemoryCache:

@@ -12,7 +12,7 @@ from .cache import MemoryCache
 from .debug import add_debug_header, ctx_add_debug_header
 from .log import d_log, log
 from .minifiers import minify_css, minify_html, minify_js
-from .utils import Encoding, Minifcation
+from .models import Encoding, Minifcation
 
 
 class Squeeze:
@@ -155,8 +155,9 @@ class Squeeze:
 
 
 	@d_log(level=1)
-	def run_for_static_resource(self,
-			response: Response,
+	def run_for_static_resource(
+		self,
+		response: Response,
 	) -> None:
 		"""
 			Compress a static resource.
