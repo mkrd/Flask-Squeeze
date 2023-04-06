@@ -127,7 +127,7 @@ def test_get_unknown_url(client: FlaskClient):
 
 
 
-def test_get_same_repeatedly(client: FlaskClient,):
+def test_get_same_repeatedly(client: FlaskClient):
 	client.application.config.update({"SQUEEZE_MINIFY_JS": True})
 	for i in range(100):
 		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "br"})
