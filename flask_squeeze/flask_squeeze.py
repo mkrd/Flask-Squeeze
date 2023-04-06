@@ -146,7 +146,6 @@ class Squeeze:
 		))
 
 		response.set_data(compressed_data)
-		self.set_header_after_compression(response)
 
 
 
@@ -202,32 +201,29 @@ class Squeeze:
 
 
 
-	def set_headers_if_content_length_changed(
+	def recompute_headers(
 		self,
 		response: Response,
 		original_content_length: int
 	) -> None:
 		"""
 			Set the Content-Length header if it has changed.
+			Set the Content-Encoding header if compressed data is served.
 		"""
 		if response.direct_passthrough:
 			return
+
+		if isinstance(self.encode_choice, Encoding):
+			response.headers["Content-Encoding"] = self.encode_choice.value
+			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
+			vary.add("Accept-Encoding")
+			vary.discard("")
+			response.headers["Vary"] = ",".join(vary)
+
 		if original_content_length == response.content_length:
 			return
 		response.headers["Content-Length"] = response.content_length
 		response.headers["X-Uncompressed-Content-Length"] = original_content_length
-
-
-
-	def set_header_after_compression(self, response: Response) -> None:
-		"""
-			Set the Content-Encoding header after compression.
-		"""
-		response.headers["Content-Encoding"] = self.encode_choice.value
-		vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
-		vary.add("Accept-Encoding")
-		vary.discard("")
-		response.headers["Vary"] = ",".join(vary)
 
 
 
@@ -276,7 +272,8 @@ class Squeeze:
 			self.run_for_dynamic_resource(response)
 		else:
 			self.run_for_static_resource(response)
-		self.set_headers_if_content_length_changed(response, original_content_length)
+
+		self.recompute_headers(response, original_content_length)
 
 		log(1, f"Cached: {self.cache.keys()}")
 
