@@ -273,6 +273,6 @@ class Squeeze:
 
 		self.recompute_headers(response, original_content_length)
 
-		log(1, f"{self.cache}")
+		log(1, f"Cached: {self.cache.keys()}")
 
 		return response

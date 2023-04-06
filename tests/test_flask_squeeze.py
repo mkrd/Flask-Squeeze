@@ -1,13 +1,16 @@
 import pytest
-from test_app import create_app
 from flask.testing import FlaskClient
+from test_app import create_app
 from werkzeug.wrappers import Response
 
+########################################################################################
+# Fixtures
+##########
 
 @pytest.fixture
-def client():
-	app = create_app({"TESTING": True})
-	app.config.update({"SQUEEZE_LEVEL_DYNAMIC": 1})
+def client(): # noqa
+	app = create_app()
+	app.testing = True
 	with app.test_client() as test_client:
 		yield test_client
 
@@ -27,8 +30,9 @@ def use_minify_js(request):
 def use_minify_css(request):
 	return request.param
 
-
-
+########################################################################################
+# Utilities
+###########
 
 def almost_equal(a, b, percent=0.01):
 	diff = abs(int(a) - int(b))
@@ -38,6 +42,10 @@ def almost_equal(a, b, percent=0.01):
 def content_length_correct(r: Response) -> bool:
 	return int(r.headers.get("Content-Length", 0)) == len(r.data)
 
+
+########################################################################################
+# Tests
+########
 
 
 def test_get_index(client: FlaskClient, use_encoding: str):
@@ -66,7 +74,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 	client.application.config.update({"SQUEEZE_MINIFY_CSS": use_minify_css})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	length = r.headers.get("Content-Length")
+	response_length = r.headers.get("Content-Length")
 	encoding = r.headers.get("Content-Encoding", "")
 
 	assert use_encoding == encoding
@@ -82,7 +90,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 		("gzip", False): 179_998,
 	}
 
-	assert almost_equal(length, sizes[(use_encoding, use_minify_css)])
+	assert almost_equal(response_length, sizes[(use_encoding, use_minify_css)])
 
 
 

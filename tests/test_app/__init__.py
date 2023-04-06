@@ -2,13 +2,8 @@ from flask import Flask
 from flask_squeeze import Squeeze
 
 
-
-squeeze = Squeeze()
-
-
-
-def create_app(test_config=None):
-	"""Create and configure an instance of the Flask application."""
+def create_app():
+	squeeze = Squeeze()
 	app = Flask(__name__, instance_relative_config=True)
 	app.config.from_mapping(
 		ENV="development",
