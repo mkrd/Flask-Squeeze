@@ -23,8 +23,9 @@ class MemoryCache:
 			encoding: Encoding,
 			minification: Minifcation,
 	) -> Union[bytes, None]:
-		file = request_path.replace("/static/", "")
-		return self.data.get((file, encoding, minification), None)
+		e = encoding.value if encoding else "none"
+		m = minification.value if minification else "none"
+		return self.data.get((request_path, e, m), None)
 
 
 	@d_log(level=2, with_args=[1, 2, 3])
@@ -34,5 +35,6 @@ class MemoryCache:
 			minification: Minifcation,
 			value: bytes,
 	) -> None:
-		file = request_path.replace("/static/", "")
-		self.data[(file, encoding, minification)] = value
+		e = encoding.value if encoding else "none"
+		m = minification.value if minification else "none"
+		self.data[(request_path, e, m)] = value

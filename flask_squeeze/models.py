@@ -23,7 +23,7 @@ def choose_encoding_from_headers_and_config(
 		If the client does not accept any of these encodings, or if the config
 		variable SQUEEZE_COMPRESS is False, return None.
 	"""
-	if not config["SQUEEZE_COMPRESS"]:
+	if not config.get("SQUEEZE_COMPRESS") or headers is None:
 		return None
 	encoding = headers.get("Accept-Encoding", "").lower()
 	if "br" in encoding:
@@ -42,7 +42,7 @@ class Minifcation(Enum):
 
 
 def choose_minification_from_mimetype_and_config(
-	mimetype: str,
+	mimetype: Union[str, None],
 	config: Config,
 ) -> Union[Minifcation, None]:
 	"""
@@ -52,11 +52,13 @@ def choose_minification_from_mimetype_and_config(
 		-  `html` and `SQUEEZE_MINIFY_HTML=True`: return `Minifcation.html`
 		- Otherwise, return `None`
 	"""
+	if mimetype is None:
+		return None
 	is_js_or_json = mimetype.endswith("javascript") or mimetype.endswith("json")
-	if is_js_or_json and config["SQUEEZE_MINIFY_JS"]:
+	if is_js_or_json and config.get("SQUEEZE_MINIFY_JS"):
 		return Minifcation.js
-	if mimetype.endswith("css") and config["SQUEEZE_MINIFY_CSS"]:
+	if mimetype.endswith("css") and config.get("SQUEEZE_MINIFY_CSS"):
 		return Minifcation.css
-	if mimetype.endswith("html") and config["SQUEEZE_MINIFY_HTML"]:
+	if mimetype.endswith("html") and config.get("SQUEEZE_MINIFY_HTML"):
 		return Minifcation.html
 	return None
