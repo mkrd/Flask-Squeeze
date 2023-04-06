@@ -8,10 +8,21 @@ if TYPE_CHECKING:
 	from werkzeug.datastructures import Headers
 
 
+class ResourceType(Enum):
+	static = "static"
+	dynamic = "dynamic"
+
+
 class Encoding(Enum):
 	gzip = "gzip"
 	deflate = "deflate"
 	br = "br"
+
+
+class Minifcation(Enum):
+	js = "js"
+	css = "css"
+	html = "html"
 
 
 def choose_encoding_from_headers_and_config(
@@ -35,10 +46,7 @@ def choose_encoding_from_headers_and_config(
 	return None
 
 
-class Minifcation(Enum):
-	js = "js"
-	css = "css"
-	html = "html"
+
 
 
 def choose_minification_from_mimetype_and_config(
