@@ -3,7 +3,7 @@ import random
 import secrets
 import time
 import zlib
-from typing import Union
+from typing import Union, Dict
 
 import brotli
 from flask import Flask, Response, request
@@ -23,7 +23,7 @@ from .models import (
 class Squeeze:
 
 	__slots__ = "cache", "app", "encode_choice", "minify_choice", "resource_type"
-	cache: MemoryCache
+	cache: Dict[str, bytes]
 	app: Flask
 	encode_choice: Union[Encoding, None]
 	minify_choice: Union[Minifcation, None]
@@ -32,7 +32,7 @@ class Squeeze:
 
 	def __init__(self, app: Flask = None) -> None:
 		""" Initialize Flask-Squeeze with or without app. """
-		self.cache = MemoryCache()
+		self.cache = {}
 		self.app = app
 		if app is not None:
 			self.init_app(app)
@@ -168,8 +168,9 @@ class Squeeze:
 			Compress a static resource.
 		"""
 
-		path = request.path
-		from_cache = self.cache.get(path, self.encode_choice, self.minify_choice)
+
+		# Serve from cache if possible
+		from_cache = self.cache.get(request.path, None)
 		if from_cache is not None:
 			log(2, "Found in cache. RETURN")
 			response.direct_passthrough = False
@@ -184,11 +185,9 @@ class Squeeze:
 		if self.encode_choice is not None:
 			self.execute_compress(response)
 
-		# If compression or minification was done, insert into cache
-		if self.encode_choice or self.minify_choice:
-			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			data = response.get_data(as_text=False)
-			self.cache.insert(path, self.encode_choice, self.minify_choice, data)
+		# Assert: At least one of minify or compress was run
+		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+		self.cache[request.path] = response.get_data(as_text=False)
 
 
 
