@@ -89,6 +89,11 @@ class Squeeze:
 				minified = minify_css(data)
 			elif self.minify_choice == Minifcation.js:
 				minified = minify_js(data)
+			else:
+				raise ValueError(
+					f"Invalid minify choice {self.minify_choice} "
+					f"for {self.resource_type} resource at {request.path}"
+				)
 			minified = minified.encode("utf-8")
 
 		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
@@ -130,6 +135,11 @@ class Squeeze:
 				compressed_data = zlib.compress(data, level=quality)
 			elif self.encode_choice == Encoding.gzip:
 				compressed_data = gzip.compress(data, compresslevel=quality)
+			else:
+				raise ValueError(
+					f"Invalid encoding choice {self.encode_choice} "
+					f"for {self.resource_type} resource at {request.path}"
+				)
 
 		log(3, (
 			f"Compression ratio: { len(data) / len(compressed_data):.1f}x, "
