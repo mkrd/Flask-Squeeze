@@ -4,10 +4,10 @@ import rjsmin
 
 def minify_html(html_text: str) -> str:
 	"""
-		Minifies HTML by removing white space and comments.
-		Additionally it uses minify_css and minify_js functions
-		to minify css in style tags and js in script tags
-		respectively.
+	Minifies HTML by removing white space and comments.
+	Additionally it uses minify_css and minify_js functions
+	to minify css in style tags and js in script tags
+	respectively.
 	"""
 
 	# TODO: Find robust way to minify
@@ -48,7 +48,6 @@ def minify_html(html_text: str) -> str:
 
 def minify_css(data: str) -> str:
 	return rcssmin.cssmin(data, keep_bang_comments=False)
-
 
 
 def minify_js(data: str) -> str:

@@ -7,8 +7,9 @@ from werkzeug.wrappers import Response
 # Fixtures
 ##########
 
+
 @pytest.fixture
-def client(): # noqa
+def client():  # noqa
 	app = create_app()
 	app.testing = True
 	with app.test_client() as test_client:
@@ -20,7 +21,6 @@ def use_encoding(request):
 	return request.param
 
 
-
 @pytest.fixture(params=[False, True])
 def use_minify_js(request):
 	return request.param
@@ -30,9 +30,11 @@ def use_minify_js(request):
 def use_minify_css(request):
 	return request.param
 
+
 ########################################################################################
 # Utilities
 ###########
+
 
 def almost_equal(a, b, percent=0.01):
 	diff = abs(int(a) - int(b))
@@ -48,15 +50,12 @@ def content_length_correct(r: Response) -> bool:
 ########
 
 
-
-
 def test_get_index(client: FlaskClient, use_encoding: str):
 	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	length = r.headers.get("Content-Length")
 	encoding = r.headers.get("Content-Encoding", "")
-
 
 	assert use_encoding == encoding
 
@@ -68,7 +67,6 @@ def test_get_index(client: FlaskClient, use_encoding: str):
 	}
 
 	assert almost_equal(length, sizes[use_encoding])
-
 
 
 def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bool):
@@ -95,14 +93,12 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 	assert almost_equal(response_length, sizes[(use_encoding, use_minify_css)])
 
 
-
 def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool):
 	print("test_get_js_file with", use_encoding, "minify:", use_minify_js)
 	client.application.config.update({"SQUEEZE_MINIFY_JS": use_minify_js})
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	assert use_encoding == r.headers.get("Content-Encoding", "")
-
 
 
 def test_get_jquery_no_minify(client: FlaskClient):
@@ -116,7 +112,7 @@ def test_get_jquery_no_minify(client: FlaskClient):
 
 def test_get_from_cache(client: FlaskClient, use_encoding: str):
 	client.application.config.update({"SQUEEZE_MINIFY_JS": False})
-	r   = client.get("/static/jquery.min.js", headers={"Accept-Encoding": use_encoding})
+	r = client.get("/static/jquery.min.js", headers={"Accept-Encoding": use_encoding})
 	r_2 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": use_encoding})
 	assert r.data == r_2.data
 
@@ -124,7 +120,6 @@ def test_get_from_cache(client: FlaskClient, use_encoding: str):
 def test_get_unknown_url(client: FlaskClient):
 	r = client.get("/static/unknown.js", headers={"Accept-Encoding": "gzip"})
 	assert r.status_code == 404
-
 
 
 def test_get_same_repeatedly(client: FlaskClient):

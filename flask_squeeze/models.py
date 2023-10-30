@@ -30,9 +30,9 @@ def choose_encoding_from_headers_and_config(
 	config: Config,
 ) -> Union[Encoding, None]:
 	"""
-		If the client supports brotli, gzip, or deflate, return the best encoding.
-		If the client does not accept any of these encodings, or if the config
-		variable SQUEEZE_COMPRESS is False, return None.
+	If the client supports brotli, gzip, or deflate, return the best encoding.
+	If the client does not accept any of these encodings, or if the config
+	variable SQUEEZE_COMPRESS is False, return None.
 	"""
 	if not config.get("SQUEEZE_COMPRESS") or headers is None:
 		return None
@@ -46,19 +46,16 @@ def choose_encoding_from_headers_and_config(
 	return None
 
 
-
-
-
 def choose_minification_from_mimetype_and_config(
 	mimetype: Union[str, None],
 	config: Config,
 ) -> Union[Minifcation, None]:
 	"""
-		Based on the response mimetype:
-		- `js` or `json`, and `SQUEEZE_MINIFY_JS=True`: return `Minifcation.js`
-		- `css` and `SQUEEZE_MINIFY_CSS=True`: return `Minifcation.css`
-		-  `html` and `SQUEEZE_MINIFY_HTML=True`: return `Minifcation.html`
-		- Otherwise, return `None`
+	Based on the response mimetype:
+	- `js` or `json`, and `SQUEEZE_MINIFY_JS=True`: return `Minifcation.js`
+	- `css` and `SQUEEZE_MINIFY_CSS=True`: return `Minifcation.css`
+	-  `html` and `SQUEEZE_MINIFY_HTML=True`: return `Minifcation.html`
+	- Otherwise, return `None`
 	"""
 	if mimetype is None:
 		return None

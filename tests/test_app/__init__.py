@@ -1,4 +1,5 @@
 from flask import Flask
+
 from flask_squeeze import Squeeze
 
 
@@ -17,7 +18,7 @@ def create_app():
 	squeeze.init_app(app)
 
 	from test_app import main
-	app.register_blueprint(main.bp)
 
+	app.register_blueprint(main.bp)
 
 	return app

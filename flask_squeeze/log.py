@@ -26,14 +26,14 @@ def log(level: int, s: str) -> None:
 
 class d_log:  # noqa: N801
 	"""
-		decorator for logging.
-		level: indent level
-		with_args: list of indices of args that should apppear in the log
-		with_kwargs: list of kwarg names that should appear in the log
+	decorator for logging.
+	level: indent level
+	with_args: list of indices of args that should apppear in the log
+	with_kwargs: list of kwarg names that should appear in the log
 	"""
 
-
-	def __init__(self,
+	def __init__(
+		self,
 		level: int = 0,
 		with_args: list = None,
 		with_kwargs: list = None,
@@ -41,7 +41,6 @@ class d_log:  # noqa: N801
 		self.level = level
 		self.with_args = with_args if with_args is not None else []
 		self.with_kwargs = with_kwargs if with_kwargs is not None else []
-
 
 	def __call__(self, method) -> Callable:
 		@functools.wraps(method)
@@ -62,4 +61,5 @@ class d_log:  # noqa: N801
 			print(_format_log(end_log, self.level, request, 96))
 
 			return res
+
 		return wrapper

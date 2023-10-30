@@ -13,7 +13,6 @@ def _write_benchmark_debug_header(response: Response, header_name: str, t1: floa
 		response.headers[header_name] = dur_ms_str
 
 
-
 @contextmanager
 def ctx_add_benchmark_header(header_name: str, response: Response) -> Generator:
 	t1 = time.perf_counter()
@@ -22,9 +21,7 @@ def ctx_add_benchmark_header(header_name: str, response: Response) -> Generator:
 	_write_benchmark_debug_header(response, header_name, t1, t2)
 
 
-
 class add_debug_header:  # noqa: N801
-
 	def __init__(self, header_name: str) -> None:
 		self.header_name = header_name
 
@@ -35,7 +32,9 @@ class add_debug_header:  # noqa: N801
 		for kwarg in kwargs.values():
 			if isinstance(kwarg, Response):
 				return kwarg
-		raise ValueError("You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg.")
+		raise ValueError(
+			"You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg."
+		)
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
@@ -50,4 +49,5 @@ class add_debug_header:  # noqa: N801
 
 			_write_benchmark_debug_header(response, self.header_name, t1, t2)
 			return res
+
 		return wrapper
