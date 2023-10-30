@@ -31,6 +31,7 @@ build-backend = "poetry.masonry.api"
 
 [tool.ruff]
 show-fixes = true
+line-length = 120
 select = [
 	"ANN", # annotations
     "B", # bugbear
@@ -52,3 +53,7 @@ ignore = [
     "UP035", # use typing Dict and List (not possible in python 3.8)
     "W191", # indentation contains tabs
 ]
+
+[tool.ruff.format]
+indent-style = "tab"
+quote-style = "double"
