@@ -38,7 +38,7 @@ class add_debug_header:  # noqa: N801
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
-		def wrapper(*args: tuple, **kwargs: dict[str, Any]):
+		def wrapper(*args: tuple, **kwargs: Dict[str, Any]):
 			if not current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 				return method(*args, **kwargs)
 

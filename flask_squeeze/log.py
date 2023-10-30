@@ -1,6 +1,6 @@
 import functools
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Dict
 
 from flask import Request, current_app, request
 
@@ -44,7 +44,7 @@ class d_log:  # noqa: N801
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
-		def wrapper(*args: tuple, **kwargs: dict[str, Any]):
+		def wrapper(*args: tuple, **kwargs: Dict[str, Any]):
 			if not current_app.config["SQUEEZE_VERBOSE_LOGGING"]:
 				return method(*args, **kwargs)
 
