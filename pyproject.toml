@@ -47,6 +47,7 @@ select = [
 ]
 ignore = [
 	"ANN101", # missing type annotation for self
+    "ANN202", # Missing return type annotation for private function
 	"E501", # line length
 	"UP006", # use Dict (not possible in python 3.8)
 	"UP007", # use X | Y for union (not possible in python 3.8)

@@ -3,7 +3,7 @@ from flask import Flask
 from flask_squeeze import Squeeze
 
 
-def create_app():
+def create_app() -> Flask:
 	squeeze = Squeeze()
 	app = Flask(__name__, instance_relative_config=True)
 	app.config.from_mapping(

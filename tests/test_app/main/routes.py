@@ -11,6 +11,6 @@ from test_app.main import bp
 
 @bp.route("/")
 @bp.route("/index")
-def hello():
+def hello() -> str:
 	data = datetime.now(timezone.utc)
 	return render_template("index.html", data=str(data))

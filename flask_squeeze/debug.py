@@ -2,7 +2,7 @@ import functools
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from flask import Response, current_app
 
@@ -38,7 +38,7 @@ class add_debug_header:  # noqa: N801
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
-		def wrapper(*args, **kwargs):
+		def wrapper(*args: tuple, **kwargs: dict[str, Any]):
 			if not current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 				return method(*args, **kwargs)
 

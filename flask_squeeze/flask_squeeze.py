@@ -172,7 +172,7 @@ class Squeeze:
 		if "/static/" in request.path:
 			# Serve from cache if possible
 			encode_choice_str = self.encode_choice.value if self.encode_choice else "none"
-			from_cache = self.cache.get((request.path, encode_choice_str), None)
+			from_cache = self.cache.get((request.path, encode_choice_str))
 			if from_cache is not None:
 				log(2, "Found in cache. RETURN")
 				response.direct_passthrough = False
