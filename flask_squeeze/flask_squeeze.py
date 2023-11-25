@@ -13,7 +13,7 @@ from .log import d_log, log
 from .minifiers import minify_css, minify_html, minify_js
 from .models import (
 	Encoding,
-	Minifcation,
+	Minification,
 	ResourceType,
 	choose_encoding_from_headers_and_config,
 	choose_minification_from_mimetype_and_config,
@@ -34,7 +34,7 @@ class Squeeze:
 	cache: Dict[Tuple[str, str], bytes]
 	app: Flask
 	encode_choice: Union[Encoding, None]
-	minify_choice: Union[Minifcation, None]
+	minify_choice: Union[Minification, None]
 
 	def __init__(self, app: Flask = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
@@ -90,11 +90,11 @@ class Squeeze:
 		log(3, f"Minifying {self.minify_choice.value} resource")
 
 		with ctx_add_benchmark_header("X-Flask-Squeeze-Minify-Duration", response):
-			if self.minify_choice == Minifcation.html:
+			if self.minify_choice == Minification.html:
 				minified = minify_html(data)
-			elif self.minify_choice == Minifcation.css:
+			elif self.minify_choice == Minification.css:
 				minified = minify_css(data)
-			elif self.minify_choice == Minifcation.js:
+			elif self.minify_choice == Minification.js:
 				minified = minify_js(data)
 			else:
 				raise ValueError(f"Invalid minify choice {self.minify_choice} " f"at {request.path}")
@@ -180,7 +180,7 @@ class Squeeze:
 				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
 				return
 			# Assert: not in cache
-			if isinstance(self.minify_choice, Minifcation):
+			if isinstance(self.minify_choice, Minification):
 				self.execute_minify(response)
 			if isinstance(self.encode_choice, Encoding):
 				self.execute_compress(response, ResourceType.static)
@@ -188,7 +188,7 @@ class Squeeze:
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 			self.cache[(request.path, encode_choice_str)] = response.get_data(as_text=False)
 		else:
-			if isinstance(self.minify_choice, Minifcation):
+			if isinstance(self.minify_choice, Minification):
 				self.execute_minify(response)
 			if isinstance(self.encode_choice, Encoding):
 				self.execute_compress(response, ResourceType.dynamic)
