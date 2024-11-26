@@ -11,7 +11,7 @@ Flask-Squeeze is a Flask extension that automatically:
 - **Caches** static files so that they don't have to be re-compressed. The cache will be cleared each time Flask restarts. Files are considered static if the the substring "/static/" is in their request path.
 
 ## Compatibility
-- Tested with Python 3.7, 3.8, 3.9, 3.10, 3.11 and 3.12
+- Tested with Python 3.7, 3.8, 3.9, 3.10, 3.11, 3.12 and 3.13
 
 ## Installation
 ```
