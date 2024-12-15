@@ -29,8 +29,13 @@ dev = [
 
 
 [tool.setuptools]
-license-files = [] # Workaround for https://github.com/astral-sh/uv/issues/9513
 packages = ["flask_squeeze"]
+license-files = [] # Workaround for https://github.com/astral-sh/uv/issues/9513
+
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
 
 
 [tool.ruff]
