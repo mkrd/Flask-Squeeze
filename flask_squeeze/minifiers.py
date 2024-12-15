@@ -47,8 +47,12 @@ def minify_html(html_text: str) -> str:
 
 
 def minify_css(data: str) -> str:
-	return rcssmin.cssmin(data, keep_bang_comments=False)
+	minified = rcssmin.cssmin(data, keep_bang_comments=False)
+	assert isinstance(minified, str)
+	return minified
 
 
 def minify_js(data: str) -> str:
-	return rjsmin.jsmin(data, keep_bang_comments=False)
+	minified = rjsmin.jsmin(data, keep_bang_comments=False)
+	assert isinstance(minified, str)
+	return minified
