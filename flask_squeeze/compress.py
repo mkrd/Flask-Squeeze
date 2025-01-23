@@ -43,7 +43,8 @@ def compress(
 	)
 
 
-def add_compression_info_headers(response: Response, result: CompressionResult) -> None:
+def update_response_with_compressed_data(response: Response, result: CompressionResult) -> None:
+	response.set_data(result.data)
 	response.headers["X-Flask-Squeeze-Compression-Quality"] = str(result.quality)
 	response.headers["X-Flask-Squeeze-Compression-Duration"] = f"{result.duration * 1000:.1f}ms"
 	response.headers["X-Flask-Squeeze-Compression-Ratio"] = f"{result.ratio:.1f}x"

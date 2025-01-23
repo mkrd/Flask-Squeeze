@@ -97,6 +97,7 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 	)
 
 
-def add_minification_info_headers(response: Response, result: MinificationResult) -> None:
+def update_response_with_minified_data(response: Response, result: MinificationResult) -> None:
+	response.set_data(result.data)
 	response.headers["X-Flask-Squeeze-Minify-Duration"] = f"{result.duration * 1000:.1f}ms"
 	response.headers["X-Flask-Squeeze-Minify-Ratio"] = f"{result.ratio:.1f}x"
