@@ -1,12 +1,11 @@
 import gzip
-import random
-import secrets
-import time
 import zlib
 from typing import Dict, Tuple, Union
 
 import brotli
 from flask import Flask, Response, request
+
+from flask_squeeze.utils import add_breach_exploit_protection_header
 
 from .debug import add_debug_header, ctx_add_benchmark_header
 from .log import d_log, log
@@ -20,26 +19,18 @@ from .models import (
 )
 
 
-def add_breach_exploit_protection_header(response: Response) -> None:
-	"""
-	Protect against BREACH attack
-	"""
-	tx = 2 if int(time.time() ** 3.141592) % 2 else 1
-	rand_str: str = secrets.token_urlsafe(random.randint(32 * tx, 128 * tx))
-	response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
-
-
 class Squeeze:
 	__slots__ = "cache", "app"
 	cache: Dict[Tuple[str, str], bytes]
 	app: Flask
 
-	def __init__(self, app: Flask = None) -> None:
+	def __init__(self, app: Union[Flask, None] = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
 		self.cache = {}
+		if app is None:
+			return
 		self.app = app
-		if app is not None:
-			self.init_app(app)
+		self.init_app(app)
 
 	def init_app(self, app: Flask) -> None:
 		"""Initialize Flask-Squeeze with app"""
@@ -96,7 +87,7 @@ class Squeeze:
 			elif minify_choice == Minification.js:
 				minified = minify_js(data)
 			else:
-				raise ValueError(f"Invalid minify choice {minify_choice} " f"at {request.path}")
+				raise ValueError(f"Invalid minify choice {minify_choice} at {request.path}")
 			minified = minified.encode("utf-8")
 
 		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
@@ -123,9 +114,13 @@ class Squeeze:
 			(Encoding.gzip, ResourceType.static): "SQUEEZE_LEVEL_GZIP_STATIC",
 			(Encoding.gzip, ResourceType.dynamic): "SQUEEZE_LEVEL_GZIP_DYNAMIC",
 		}
-		quality = self.app.config[options[(encode_choice, resource_type)]]
 
-		log(3, (f"Compressing resource with {encode_choice} encoding", f", and quality {quality}."))
+		if (option := options.get((encode_choice or Encoding.gzip, resource_type))) is None:
+			raise ValueError(f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}")
+
+		quality = self.app.config[option]
+
+		log(3, f"Compressing resource with {encode_choice} encoding, and quality {quality}.")
 
 		with ctx_add_benchmark_header("X-Flask-Squeeze-Compress-Duration", response):
 			if encode_choice == Encoding.br:
@@ -136,10 +131,10 @@ class Squeeze:
 				compressed_data = gzip.compress(data, compresslevel=quality)
 			else:
 				raise ValueError(
-					f"Invalid encoding choice {encode_choice} " f"for {resource_type} resource at {request.path}"
+					f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}"
 				)
 
-		log(3, (f"Compression ratio: { len(data) / len(compressed_data):.1f}x, " f"used {encode_choice}"))
+		log(3, (f"Compression ratio: {len(data) / len(compressed_data):.1f}x, used {encode_choice}"))
 
 		response.set_data(compressed_data)
 

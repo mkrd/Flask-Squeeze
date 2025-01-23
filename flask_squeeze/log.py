@@ -1,6 +1,6 @@
 import functools
 import time
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Union
 
 from flask import Request, current_app, request
 
@@ -35,8 +35,8 @@ class d_log:  # noqa: N801
 	def __init__(
 		self,
 		level: int = 0,
-		with_args: list = None,
-		with_kwargs: list = None,
+		with_args: Union[List, None] = None,
+		with_kwargs: Union[List, None] = None,
 	) -> None:
 		self.level = level
 		self.with_args = with_args if with_args is not None else []
