@@ -1,10 +1,9 @@
 import gzip
-import hashlib
 import zlib
 from typing import Dict, Tuple, Union
 
 import brotli
-from flask import Flask, Request, Response, request
+from flask import Flask, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header
 
