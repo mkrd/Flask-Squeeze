@@ -22,7 +22,7 @@ class Squeeze:
 	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache_static: Dict[Tuple[str, str], tuple[str, bytes]]
+	cache_static: Dict[Tuple[str, str], Tuple[str, bytes]]
 	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
 	def __init__(self, app: Union[Flask, None] = None) -> None:
