@@ -1,15 +1,14 @@
-import gzip
-import zlib
+import hashlib
 from typing import Dict, Tuple, Union
 
-import brotli
 from flask import Flask, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header
 
-from .debug import add_debug_header, ctx_add_benchmark_header
+from .compress import compress, update_response_with_compressed_data
+from .debug import add_debug_header
 from .log import d_log, log
-from .minifiers import minify_css, minify_html, minify_js
+from .minify import minify, update_response_with_minified_data
 from .models import (
 	Encoding,
 	Minification,
@@ -20,15 +19,15 @@ from .models import (
 
 
 class Squeeze:
-	__slots__ = "app", "cache"
+	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache: Dict[Tuple[str, str], bytes]
-	""" (request.path, encoding) -> compressed bytes """
+	cache_static: Dict[Tuple[str, str], Tuple[str, bytes]]
+	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
 	def __init__(self, app: Union[Flask, None] = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
-		self.cache = {}
+		self.cache_static = {}
 		if app is None:
 			return
 		self.app = app
@@ -63,51 +62,10 @@ class Squeeze:
 		):
 			app.after_request(self.after_request)
 
-	# Minification
+	# Helpers
 	####################################################################################
 
-	@d_log(level=2, with_args=[1])
-	def execute_minify(
-		self,
-		response: Response,
-		minify_choice: Union[Minification, None],
-	) -> None:
-		"""
-		Dispatch minification to the correct function.
-		Exit early if minification is not enabled for the repsonse mimetype.
-		"""
-		response.direct_passthrough = False
-		data = response.get_data(as_text=True)
-
-		log(3, f"Minifying {minify_choice} resource")
-
-		with ctx_add_benchmark_header("X-Flask-Squeeze-Minify-Duration", response):
-			if minify_choice == Minification.html:
-				minified = minify_html(data)
-			elif minify_choice == Minification.css:
-				minified = minify_css(data)
-			elif minify_choice == Minification.js:
-				minified = minify_js(data)
-			else:
-				raise ValueError(f"Invalid minify choice {minify_choice} at {request.path}")
-			minified = minified.encode("utf-8")
-
-		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
-		response.set_data(minified)
-
-	# Compression
-	####################################################################################
-
-	@d_log(level=2, with_args=[1, 2, 3])
-	def execute_compress(
-		self,
-		response: Response,
-		resource_type: ResourceType,
-		encode_choice: Union[Encoding, None],
-	) -> None:
-		response.direct_passthrough = False
-		data = response.get_data(as_text=False)
-
+	def get_configured_quality(self, encode_choice: Encoding, resource_type: ResourceType) -> int:
 		options = {
 			(Encoding.br, ResourceType.static): "SQUEEZE_LEVEL_BROTLI_STATIC",
 			(Encoding.br, ResourceType.dynamic): "SQUEEZE_LEVEL_BROTLI_DYNAMIC",
@@ -117,37 +75,15 @@ class Squeeze:
 			(Encoding.gzip, ResourceType.dynamic): "SQUEEZE_LEVEL_GZIP_DYNAMIC",
 		}
 
-		if (option := options.get((encode_choice or Encoding.gzip, resource_type))) is None:
+		if not (option := options.get((encode_choice or Encoding.gzip, resource_type))):
 			raise ValueError(f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}")
 
-		quality = self.app.config[option]
-
-		log(3, f"Compressing resource with {encode_choice} encoding, and quality {quality}.")
-
-		with ctx_add_benchmark_header("X-Flask-Squeeze-Compress-Duration", response):
-			if encode_choice == Encoding.br:
-				compressed_data = brotli.compress(data, quality=quality)
-			elif encode_choice == Encoding.deflate:
-				compressed_data = zlib.compress(data, level=quality)
-			elif encode_choice == Encoding.gzip:
-				compressed_data = gzip.compress(data, compresslevel=quality)
-			else:
-				raise ValueError(
-					f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}"
-				)
-
-		log(3, (f"Compression ratio: {len(data) / len(compressed_data):.1f}x, used {encode_choice}"))
-
-		response.set_data(compressed_data)
-
-	# Helpers
-	####################################################################################
+		return self.app.config[option]
 
 	def recompute_headers(
 		self,
 		response: Response,
 		original_content_length: int,
-		encode_choice: Union[Encoding, None],
 	) -> None:
 		"""
 		Set the Content-Length header if it has changed.
@@ -156,50 +92,116 @@ class Squeeze:
 		if response.direct_passthrough:
 			return
 
-		if isinstance(encode_choice, Encoding):
-			response.headers["Content-Encoding"] = encode_choice.value
-			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
-			vary.add("Accept-Encoding")
-			vary.discard("")
-			response.headers["Vary"] = ",".join(vary)
-
 		if original_content_length != response.content_length:
 			response.headers["Content-Length"] = response.content_length
 			response.headers["X-Uncompressed-Content-Length"] = original_content_length
 
-	# After request handler
 	####################################################################################
+	#### MARK: Dynamic
 
-	def run(
+	def run_dynamic(
 		self,
 		response: Response,
 		encode_choice: Union[Encoding, None],
 		minify_choice: Union[Minification, None],
 	) -> None:
-		if "/static/" in request.path:
-			# Serve from cache if possible
-			encode_choice_str = encode_choice.value if encode_choice else "none"
-			from_cache = self.cache.get((request.path, encode_choice_str))
-			if from_cache is not None:
+		if encode_choice is None and minify_choice is None:
+			return  # Early exit if no compression or minification is requested
+
+		response.direct_passthrough = False
+
+		# Minification
+
+		if minify_choice is not None:
+			minification_result = minify(response.get_data(as_text=False), minify_choice)
+			update_response_with_minified_data(response, minification_result)
+
+		# Compression
+
+		if encode_choice is not None:
+			compression_result = compress(
+				response.get_data(as_text=False),
+				encode_choice,
+				self.get_configured_quality(encode_choice, ResourceType.dynamic),
+			)
+			update_response_with_compressed_data(response, compression_result)
+			add_breach_exploit_protection_header(response)
+
+	####################################################################################
+	#### MARK: Static
+
+	def run_static(
+		self,
+		response: Response,
+		encode_choice: Union[Encoding, None],
+		minify_choice: Union[Minification, None],
+	) -> None:
+		response.direct_passthrough = False  # Ensure we can read the data
+
+		encode_choice_str = encode_choice.value if encode_choice else "none"
+		cache_entry = self.cache_static.get((request.path, encode_choice_str))
+
+		# Serve from cache
+
+		if cache_entry is not None:
+			original_sha256, compressed_data = cache_entry
+
+			# Compare the original file hash with the current file hash
+
+			current_data = response.get_data(as_text=False)
+			current_sha256 = hashlib.sha256(current_data).hexdigest()
+
+			if current_sha256 == original_sha256:
 				log(2, "Found in cache. RETURN")
-				response.direct_passthrough = False
-				response.set_data(from_cache)
+				response.set_data(compressed_data)
 				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
 				return
-			# Assert: not in cache
-			if isinstance(minify_choice, Minification):
-				self.execute_minify(response, minify_choice)
-			if isinstance(encode_choice, Encoding):
-				self.execute_compress(response, ResourceType.static, encode_choice)
+
+			log(2, "File has changed.")
+
+			if minify_choice is not None:
+				minfication_result = minify(response.get_data(as_text=False), minify_choice)
+				update_response_with_minified_data(response, minfication_result)
+			if encode_choice is not None:
+				compression_result = compress(
+					response.get_data(as_text=False),
+					encode_choice,
+					self.get_configured_quality(encode_choice, ResourceType.static),
+				)
+				update_response_with_compressed_data(response, compression_result)
+
 			# Assert: At least one of minify or compress was run
+
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache[(request.path, encode_choice_str)] = response.get_data(as_text=False)
+			data = response.get_data(as_text=False)
+
+			self.cache_static[(request.path, encode_choice_str)] = (current_sha256, data)
+
+		# Not in cache, compress and minify
+
 		else:
-			if isinstance(minify_choice, Minification):
-				self.execute_minify(response, minify_choice)
-			if isinstance(encode_choice, Encoding):
-				self.execute_compress(response, ResourceType.dynamic, encode_choice)
-				add_breach_exploit_protection_header(response)
+			original_data = response.get_data(as_text=False)
+			original_sha256 = hashlib.sha256(original_data).hexdigest()
+
+			if minify_choice is not None:
+				minification_result = minify(original_data, minify_choice)
+				update_response_with_minified_data(response, minification_result)
+			if encode_choice is not None:
+				compression_result = compress(
+					response.get_data(as_text=False),
+					encode_choice,
+					self.get_configured_quality(encode_choice, ResourceType.static),
+				)
+				update_response_with_compressed_data(response, compression_result)
+
+			# Assert: At least one of minify or compress was run
+
+			compressed_data = response.get_data(as_text=False)
+			self.cache_static[(request.path, encode_choice_str)] = (original_sha256, compressed_data)
+			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+
+	####################################################################################
+	#### MARK: After Request
 
 	@d_log(level=0, with_args=[1])
 	@add_debug_header("X-Flask-Squeeze-Total-Duration")
@@ -240,7 +242,12 @@ class Squeeze:
 			return response
 
 		original_content_length = response.content_length
-		self.run(response, encode_choice, minify_choice)
-		self.recompute_headers(response, original_content_length, encode_choice)
-		log(1, f"Cached: {self.cache.keys()}")
+
+		if request.path.startswith("/static/"):
+			self.run_static(response, encode_choice, minify_choice)
+		else:
+			self.run_dynamic(response, encode_choice, minify_choice)
+
+		self.recompute_headers(response, original_content_length)
+		log(1, f"Static cache: {self.cache_static.keys()}")
 		return response
