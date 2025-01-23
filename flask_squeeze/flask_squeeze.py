@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import zlib
 from typing import Dict, Tuple, Union
 
@@ -20,15 +21,15 @@ from .models import (
 
 
 class Squeeze:
-	__slots__ = "app", "cache"
+	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache: Dict[Tuple[str, str], bytes]
-	""" (request.path, encoding) -> compressed bytes """
+	cache_static: Dict[Tuple[str, str], tuple[str, bytes]]
+	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
 	def __init__(self, app: Union[Flask, None] = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
-		self.cache = {}
+		self.cache_static = {}
 		if app is None:
 			return
 		self.app = app
@@ -170,36 +171,86 @@ class Squeeze:
 	# After request handler
 	####################################################################################
 
+	def run_dynamic(
+		self,
+		response: Response,
+		encode_choice: Union[Encoding, None],
+		minify_choice: Union[Minification, None],
+	) -> None:
+		if isinstance(minify_choice, Minification):
+			self.execute_minify(response, minify_choice)
+		if isinstance(encode_choice, Encoding):
+			self.execute_compress(response, ResourceType.dynamic, encode_choice)
+			add_breach_exploit_protection_header(response)
+
+	def run_static(
+		self,
+		response: Response,
+		encode_choice: Union[Encoding, None],
+		minify_choice: Union[Minification, None],
+	) -> None:
+		response.direct_passthrough = False  # Ensure we can read the data
+
+		encode_choice_str = encode_choice.value if encode_choice else "none"
+		cache_entry = self.cache_static.get((request.path, encode_choice_str))
+
+		# Serve from cache
+
+		if cache_entry is not None:
+			original_sha256, compressed_data = cache_entry
+
+			# Compare the original file hash with the current file hash
+
+			current_data = response.get_data(as_text=False)
+			current_sha256 = hashlib.sha256(current_data).hexdigest()
+
+			if current_sha256 == original_sha256:
+				log(2, "Found in cache. RETURN")
+				response.set_data(compressed_data)
+				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
+				return
+
+			log(2, "File has changed.")
+
+			if isinstance(minify_choice, Minification):
+				self.execute_minify(response, minify_choice)
+			if isinstance(encode_choice, Encoding):
+				self.execute_compress(response, ResourceType.static, encode_choice)
+
+			# Assert: At least one of minify or compress was run
+
+			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+			data = response.get_data(as_text=False)
+
+			self.cache_static[(request.path, encode_choice_str)] = (current_sha256, data)
+			return
+
+		# Not in cache, compress and minify
+
+		original_data = response.get_data(as_text=False)
+		original_sha256 = hashlib.sha256(original_data).hexdigest()
+
+		if isinstance(minify_choice, Minification):
+			self.execute_minify(response, minify_choice)
+		if isinstance(encode_choice, Encoding):
+			self.execute_compress(response, ResourceType.static, encode_choice)
+
+		# Assert: At least one of minify or compress was run
+
+		compressed_data = response.get_data(as_text=False)
+		self.cache_static[(request.path, encode_choice_str)] = (original_sha256, compressed_data)
+		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+
 	def run(
 		self,
 		response: Response,
 		encode_choice: Union[Encoding, None],
 		minify_choice: Union[Minification, None],
 	) -> None:
-		if "/static/" in request.path:
-			# Serve from cache if possible
-			encode_choice_str = encode_choice.value if encode_choice else "none"
-			from_cache = self.cache.get((request.path, encode_choice_str))
-			if from_cache is not None:
-				log(2, "Found in cache. RETURN")
-				response.direct_passthrough = False
-				response.set_data(from_cache)
-				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
-				return
-			# Assert: not in cache
-			if isinstance(minify_choice, Minification):
-				self.execute_minify(response, minify_choice)
-			if isinstance(encode_choice, Encoding):
-				self.execute_compress(response, ResourceType.static, encode_choice)
-			# Assert: At least one of minify or compress was run
-			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache[(request.path, encode_choice_str)] = response.get_data(as_text=False)
+		if request.path.startswith("/static/"):
+			self.run_static(response, encode_choice, minify_choice)
 		else:
-			if isinstance(minify_choice, Minification):
-				self.execute_minify(response, minify_choice)
-			if isinstance(encode_choice, Encoding):
-				self.execute_compress(response, ResourceType.dynamic, encode_choice)
-				add_breach_exploit_protection_header(response)
+			self.run_dynamic(response, encode_choice, minify_choice)
 
 	@d_log(level=0, with_args=[1])
 	@add_debug_header("X-Flask-Squeeze-Total-Duration")
@@ -242,5 +293,5 @@ class Squeeze:
 		original_content_length = response.content_length
 		self.run(response, encode_choice, minify_choice)
 		self.recompute_headers(response, original_content_length, encode_choice)
-		log(1, f"Cached: {self.cache.keys()}")
+		log(1, f"Static cache: {self.cache_static.keys()}")
 		return response
