@@ -1,16 +1,14 @@
-import gzip
 import hashlib
-import zlib
 from typing import Dict, Tuple, Union
 
-import brotli
 from flask import Flask, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header
 
-from .debug import add_debug_header, ctx_add_benchmark_header
+from .compress import add_compression_info_headers, compress
+from .debug import add_debug_header
 from .log import d_log, log
-from .minifiers import minify_css, minify_html, minify_js
+from .minify import add_minification_info_headers, minify
 from .models import (
 	Encoding,
 	Minification,
@@ -64,51 +62,10 @@ class Squeeze:
 		):
 			app.after_request(self.after_request)
 
-	# Minification
+	# Helpers
 	####################################################################################
 
-	@d_log(level=2, with_args=[1])
-	def execute_minify(
-		self,
-		response: Response,
-		minify_choice: Union[Minification, None],
-	) -> None:
-		"""
-		Dispatch minification to the correct function.
-		Exit early if minification is not enabled for the repsonse mimetype.
-		"""
-		response.direct_passthrough = False
-		data = response.get_data(as_text=True)
-
-		log(3, f"Minifying {minify_choice} resource")
-
-		with ctx_add_benchmark_header("X-Flask-Squeeze-Minify-Duration", response):
-			if minify_choice == Minification.html:
-				minified = minify_html(data)
-			elif minify_choice == Minification.css:
-				minified = minify_css(data)
-			elif minify_choice == Minification.js:
-				minified = minify_js(data)
-			else:
-				raise ValueError(f"Invalid minify choice {minify_choice} at {request.path}")
-			minified = minified.encode("utf-8")
-
-		log(3, f"Minify ratio: {len(data) / len(minified):.2f}x")
-		response.set_data(minified)
-
-	# Compression
-	####################################################################################
-
-	@d_log(level=2, with_args=[1, 2, 3])
-	def execute_compress(
-		self,
-		response: Response,
-		resource_type: ResourceType,
-		encode_choice: Union[Encoding, None],
-	) -> None:
-		response.direct_passthrough = False
-		data = response.get_data(as_text=False)
-
+	def get_configured_quality(self, encode_choice: Encoding, resource_type: ResourceType) -> int:
 		options = {
 			(Encoding.br, ResourceType.static): "SQUEEZE_LEVEL_BROTLI_STATIC",
 			(Encoding.br, ResourceType.dynamic): "SQUEEZE_LEVEL_BROTLI_DYNAMIC",
@@ -118,31 +75,10 @@ class Squeeze:
 			(Encoding.gzip, ResourceType.dynamic): "SQUEEZE_LEVEL_GZIP_DYNAMIC",
 		}
 
-		if (option := options.get((encode_choice or Encoding.gzip, resource_type))) is None:
+		if not (option := options.get((encode_choice or Encoding.gzip, resource_type))):
 			raise ValueError(f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}")
 
-		quality = self.app.config[option]
-
-		log(3, f"Compressing resource with {encode_choice} encoding, and quality {quality}.")
-
-		with ctx_add_benchmark_header("X-Flask-Squeeze-Compress-Duration", response):
-			if encode_choice == Encoding.br:
-				compressed_data = brotli.compress(data, quality=quality)
-			elif encode_choice == Encoding.deflate:
-				compressed_data = zlib.compress(data, level=quality)
-			elif encode_choice == Encoding.gzip:
-				compressed_data = gzip.compress(data, compresslevel=quality)
-			else:
-				raise ValueError(
-					f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}"
-				)
-
-		log(3, (f"Compression ratio: {len(data) / len(compressed_data):.1f}x, used {encode_choice}"))
-
-		response.set_data(compressed_data)
-
-	# Helpers
-	####################################################################################
+		return self.app.config[option]
 
 	def recompute_headers(
 		self,
@@ -177,10 +113,28 @@ class Squeeze:
 		encode_choice: Union[Encoding, None],
 		minify_choice: Union[Minification, None],
 	) -> None:
-		if isinstance(minify_choice, Minification):
-			self.execute_minify(response, minify_choice)
-		if isinstance(encode_choice, Encoding):
-			self.execute_compress(response, ResourceType.dynamic, encode_choice)
+		if encode_choice is None and minify_choice is None:
+			return  # Early exit if no compression or minification is requested
+
+		response.direct_passthrough = False
+
+		# Minification
+
+		if minify_choice is not None:
+			minification_result = minify(response.get_data(as_text=False), minify_choice)
+			response.set_data(minification_result.data)
+			add_minification_info_headers(response, minification_result)
+
+		# Compression
+
+		if encode_choice is not None:
+			compression_result = compress(
+				response.get_data(as_text=False),
+				encode_choice,
+				self.get_configured_quality(encode_choice, ResourceType.dynamic),
+			)
+			response.set_data(compression_result.data)
+			add_compression_info_headers(response, compression_result)
 			add_breach_exploit_protection_header(response)
 
 	def run_static(
@@ -212,10 +166,18 @@ class Squeeze:
 
 			log(2, "File has changed.")
 
-			if isinstance(minify_choice, Minification):
-				self.execute_minify(response, minify_choice)
-			if isinstance(encode_choice, Encoding):
-				self.execute_compress(response, ResourceType.static, encode_choice)
+			if minify_choice is not None:
+				minfication_result = minify(response.get_data(as_text=False), minify_choice)
+				response.set_data(minfication_result.data)
+				add_minification_info_headers(response, minfication_result)
+			if encode_choice is not None:
+				compression_result = compress(
+					response.get_data(as_text=False),
+					encode_choice,
+					self.get_configured_quality(encode_choice, ResourceType.static),
+				)
+				response.set_data(compression_result.data)
+				add_compression_info_headers(response, compression_result)
 
 			# Assert: At least one of minify or compress was run
 
@@ -230,10 +192,18 @@ class Squeeze:
 		original_data = response.get_data(as_text=False)
 		original_sha256 = hashlib.sha256(original_data).hexdigest()
 
-		if isinstance(minify_choice, Minification):
-			self.execute_minify(response, minify_choice)
-		if isinstance(encode_choice, Encoding):
-			self.execute_compress(response, ResourceType.static, encode_choice)
+		if minify_choice is not None:
+			minification_result = minify(original_data, minify_choice)
+			response.set_data(minification_result.data)
+			add_minification_info_headers(response, minification_result)
+		if encode_choice is not None:
+			compression_result = compress(
+				response.get_data(as_text=False),
+				encode_choice,
+				self.get_configured_quality(encode_choice, ResourceType.static),
+			)
+			response.set_data(compression_result.data)
+			add_compression_info_headers(response, compression_result)
 
 		# Assert: At least one of minify or compress was run
 

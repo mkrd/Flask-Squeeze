@@ -1,5 +1,19 @@
+import time
+from dataclasses import dataclass
+
 import rcssmin
 import rjsmin
+from flask import Response, request
+
+from flask_squeeze.models import Minification
+
+
+@dataclass(frozen=True)
+class MinificationResult:
+	data: bytes
+	minification: Minification
+	duration: float
+	ratio: float
 
 
 def minify_html(html_text: str) -> str:
@@ -56,3 +70,33 @@ def minify_js(data: str) -> str:
 	minified = rjsmin.jsmin(data, keep_bang_comments=False)
 	assert isinstance(minified, str)
 	return minified
+
+
+def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
+	"""
+	Run the minification using the correct minify function and return the minified data.
+	"""
+
+	t0 = time.perf_counter()
+
+	if minify_choice == Minification.html:
+		minified = minify_html(data.decode("utf-8"))
+	elif minify_choice == Minification.css:
+		minified = minify_css(data.decode("utf-8"))
+	elif minify_choice == Minification.js:
+		minified = minify_js(data.decode("utf-8"))
+	else:
+		raise ValueError(f"Invalid minify choice {minify_choice} at {request.path}")
+	minified = minified.encode("utf-8")
+
+	return MinificationResult(
+		data=minified,
+		minification=minify_choice,
+		duration=time.perf_counter() - t0,
+		ratio=len(data) / len(minified),
+	)
+
+
+def add_minification_info_headers(response: Response, result: MinificationResult) -> None:
+	response.headers["X-Flask-Squeeze-Minify-Duration"] = f"{result.duration * 1000:.1f}ms"
+	response.headers["X-Flask-Squeeze-Minify-Ratio"] = f"{result.ratio:.1f}x"
