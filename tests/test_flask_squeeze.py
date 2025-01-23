@@ -7,8 +7,7 @@ from test_app import create_app
 from werkzeug.wrappers import Response
 
 ########################################################################################
-# Fixtures
-##########
+#### MARK: Fixtures
 
 
 @pytest.fixture
@@ -35,8 +34,7 @@ def use_minify_css(request):
 
 
 ########################################################################################
-# Utilities
-###########
+#### MARK: Utilities
 
 
 def almost_equal(a, b, percent=0.01):
@@ -49,8 +47,7 @@ def content_length_correct(r: Response) -> bool:
 
 
 ########################################################################################
-# Tests
-########
+#### MARK: Tests
 
 
 def test_get_index(client: FlaskClient, use_encoding: str) -> None:
@@ -152,8 +149,7 @@ def response_has_vary_header(r: Response) -> bool:
 
 
 ########################################################################################
-# Additional Tests
-########################################################################################
+#### MARK: Additional Tests
 
 
 def test_disable_compression(client: FlaskClient) -> None:
