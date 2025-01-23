@@ -48,3 +48,11 @@ def update_response_with_compressed_data(response: Response, result: Compression
 	response.headers["X-Flask-Squeeze-Compression-Quality"] = str(result.quality)
 	response.headers["X-Flask-Squeeze-Compression-Duration"] = f"{result.duration * 1000:.1f}ms"
 	response.headers["X-Flask-Squeeze-Compression-Ratio"] = f"{result.ratio:.1f}x"
+
+	# Set the Content-Encoding and Vary headers
+
+	response.headers["Content-Encoding"] = result.encoding.value
+	vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
+	vary.add("Accept-Encoding")
+	vary.discard("")
+	response.headers["Vary"] = ",".join(vary)

@@ -84,7 +84,6 @@ class Squeeze:
 		self,
 		response: Response,
 		original_content_length: int,
-		encode_choice: Union[Encoding, None],
 	) -> None:
 		"""
 		Set the Content-Length header if it has changed.
@@ -92,13 +91,6 @@ class Squeeze:
 		"""
 		if response.direct_passthrough:
 			return
-
-		if isinstance(encode_choice, Encoding):
-			response.headers["Content-Encoding"] = encode_choice.value
-			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
-			vary.add("Accept-Encoding")
-			vary.discard("")
-			response.headers["Vary"] = ",".join(vary)
 
 		if original_content_length != response.content_length:
 			response.headers["Content-Length"] = response.content_length
@@ -256,6 +248,6 @@ class Squeeze:
 		else:
 			self.run_dynamic(response, encode_choice, minify_choice)
 
-		self.recompute_headers(response, original_content_length, encode_choice)
+		self.recompute_headers(response, original_content_length)
 		log(1, f"Static cache: {self.cache_static.keys()}")
 		return response
