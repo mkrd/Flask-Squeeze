@@ -15,6 +15,15 @@ class MinificationResult:
 	duration: float
 	ratio: float
 
+	@property
+	def info(self) -> str:
+		return "; ".join(
+			[
+				f"ratio={self.ratio:.1f}x",
+				f"duration={self.duration * 1000:.1f}ms",
+			],
+		)
+
 
 def minify_html(html_text: str) -> str:
 	"""
@@ -97,5 +106,4 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 
 def update_response_with_minified_data(response: Response, result: MinificationResult) -> None:
 	response.set_data(result.data)
-	info = f"ratio={result.ratio:.1f}x; duration={result.duration * 1000:.1f}ms"
-	response.headers["X-Flask-Squeeze-Minify"] = info
+	response.headers["X-Flask-Squeeze-Minify"] = result.info

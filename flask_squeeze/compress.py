@@ -17,6 +17,16 @@ class CompressionResult:
 	duration: float
 	ratio: float
 
+	@property
+	def info(self) -> str:
+		return "; ".join(
+			[
+				f"ratio={self.ratio:.1f}x",
+				f"qualtiy={self.quality}",
+				f"duration={self.duration * 1000:.1f}ms",
+			],
+		)
+
 
 def compress(
 	data: bytes,
@@ -44,5 +54,4 @@ def compress(
 
 def update_response_with_compressed_data(response: Response, result: CompressionResult) -> None:
 	response.set_data(result.data)
-	info = f"ratio={result.ratio:.1f}x; qualtiy={result.quality}; duration={result.duration * 1000:.1f}ms"
-	response.headers["X-Flask-Squeeze-Compress"] = info
+	response.headers["X-Flask-Squeeze-Compress"] = result.info
