@@ -15,7 +15,7 @@ def add_breach_exploit_protection_header(response: Response) -> None:
 	"""
 	padding_length = secrets.randbelow(128) + 1
 	rand_str = secrets.token_urlsafe(padding_length)
-	response.headers["X-Breach-Exploit-Protection-Padding"] = rand_str
+	response.headers["X-Flask-Squeeze-Breach-Protection"] = rand_str
 
 
 def update_response_headers(
