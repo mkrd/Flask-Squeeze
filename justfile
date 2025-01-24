@@ -27,33 +27,3 @@ publish:
     rm -rf dist
     rm -rf flask_squeeze.egg-info
 
-
-
-# CONTENT    := justfile_directory() + "/content"
-# DEPLOY     := justfile_directory() + "/deploy"
-# COMMIT_TAG := `date "+%Y-%m-%dT%H:%M:%S"`
-
-# # This list of available targets
-# default:
-#     @just --list
-
-# # Build local content and deploy to public github repo.
-# deploy: build push
-
-# # Build local content to public directory.
-# build:
-# 	@echo "Generating site..."
-# 	@cd {{CONTENT}} && hugo --quiet --minify --gc --cleanDestinationDir --destination {{DEPLOY}}
-# 	@cp {{CONTENT}}/CNAME {{DEPLOY}}
-# 	@echo "Done"
-
-# # Commit current version of local public directory and push to github.
-# push:
-# 	@echo "Committing and pushing to github..."
-# 	@cd {{DEPLOY}} && git add --all .
-# 	@cd {{DEPLOY}} && git commit -m "{{COMMIT_TAG}}"
-# 	@cd {{DEPLOY}} && git push -u origin main
-
-# # Run a local server (including drafts).
-# server:
-# 	@cd {{CONTENT}} && hugo server --buildDrafts

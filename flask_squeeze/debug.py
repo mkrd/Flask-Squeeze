@@ -1,7 +1,6 @@
 import functools
 import time
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from typing import Any, Dict, Tuple
 
 from flask import Response, current_app
@@ -11,14 +10,6 @@ def _write_benchmark_debug_header(response: Response, header_name: str, t1: floa
 	if current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 		dur_ms_str = f"{(t2 - t1) * 1000:.1f}ms"
 		response.headers[header_name] = dur_ms_str
-
-
-@contextmanager
-def ctx_add_benchmark_header(header_name: str, response: Response) -> Generator:
-	t1 = time.perf_counter()
-	yield
-	t2 = time.perf_counter()
-	_write_benchmark_debug_header(response, header_name, t1, t2)
 
 
 class add_debug_header:  # noqa: N801
