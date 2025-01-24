@@ -32,7 +32,8 @@ def compress(
 	elif encode_choice == Encoding.gzip:
 		compressed_data = gzip.compress(data, compresslevel=quality)
 	else:
-		raise ValueError(f"Invalid encoding choice {encode_choice}")
+		msg = f"Invalid encoding choice {encode_choice}"
+		raise ValueError(msg)
 
 	return CompressionResult(
 		data=compressed_data,

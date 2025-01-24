@@ -86,7 +86,8 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 	elif minify_choice == Minification.js:
 		minified = minify_js(data.decode("utf-8"))
 	else:
-		raise ValueError(f"Invalid minify choice {minify_choice} at {request.path}")
+		msg = f"Invalid minify choice {minify_choice} at {request.path}"
+		raise ValueError(msg)
 	minified = minified.encode("utf-8")
 
 	return MinificationResult(

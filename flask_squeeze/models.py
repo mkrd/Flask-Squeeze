@@ -59,7 +59,7 @@ def choose_minification_from_mimetype_and_config(
 	"""
 	if mimetype is None:
 		return None
-	is_js_or_json = mimetype.endswith("javascript") or mimetype.endswith("json")
+	is_js_or_json = mimetype.endswith(("javascript", "json"))
 	if is_js_or_json and config.get("SQUEEZE_MINIFY_JS"):
 		return Minification.js
 	if mimetype.endswith("css") and config.get("SQUEEZE_MINIFY_CSS"):
