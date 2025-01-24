@@ -47,7 +47,6 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 | `SQUEEZE_COMPRESS` | `True` | Enables or disables compression |
 | `SQUEEZE_MIN_SIZE` | `500` | Defines the minimum file size in bytes to activate the compression |
 | `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable or disable verbose logging. If enabled, Flask-Squeeze will print what it does into the terminal in a highlighted color |
-| `SQUEEZE_ADD_DEBUG_HEADERS` | `False` | Add debug infos into the response headers, like call durations and cache hit infos. ONLY USE THIS IN DEVELOPMENT.
 
 ### Minification options
 | Option | Default | Description |

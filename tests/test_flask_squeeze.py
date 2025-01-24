@@ -203,13 +203,6 @@ def test_minification_and_compression_together(client: FlaskClient) -> None:
 	assert content_length_correct(r)
 
 
-def test_debug_headers_presence(client: FlaskClient) -> None:
-	"""Test if debug headers are added when enabled."""
-	client.application.config.update({"SQUEEZE_ADD_DEBUG_HEADERS": True})
-	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": "gzip"})
-	assert "X-Flask-Squeeze-Compress" in r.headers
-
-
 def test_no_minify_no_compress(client: FlaskClient) -> None:
 	client.application.config.update(
 		{
