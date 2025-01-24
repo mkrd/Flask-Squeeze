@@ -143,7 +143,7 @@ def test_get_same_repeatedly(client: FlaskClient) -> None:
 
 
 def response_has_breach_header(r: Response) -> bool:
-	return "X-Breach-Exploit-Protection-Padding" in r.headers
+	return "X-Flask-Squeeze-Breach-Protection" in r.headers
 
 
 def response_has_vary_header(r: Response) -> bool:
