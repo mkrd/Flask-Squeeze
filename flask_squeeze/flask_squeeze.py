@@ -4,7 +4,7 @@ import hashlib
 
 from flask import Flask, Response, request
 
-from flask_squeeze.utils import add_breach_exploit_protection_header
+from flask_squeeze.utils import add_breach_exploit_protection_header, update_response_headers
 
 from .compress import compress, update_response_with_compressed_data
 from .debug import add_debug_header
@@ -76,35 +76,9 @@ class Squeeze:
 			(Encoding.gzip, ResourceType.dynamic): "SQUEEZE_LEVEL_GZIP_DYNAMIC",
 		}
 
-		if not (option := options.get((encode_choice or Encoding.gzip, resource_type))):
-			msg = f"Invalid encoding choice {encode_choice} for {resource_type} resource at {request.path}"
-			raise ValueError(msg)
+		option = options[(encode_choice, resource_type)]
 
 		return self.app.config[option]
-
-	def recompute_headers(
-		self,
-		response: Response,
-		original_content_length: int,
-		encode_choice: Encoding | None,
-	) -> None:
-		"""
-		Set the Content-Length header if it has changed.
-		Set the Content-Encoding header if compressed data is served.
-		"""
-		if response.direct_passthrough:
-			return
-
-		if encode_choice is not None:
-			response.headers["Content-Encoding"] = encode_choice.value
-			vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
-			vary.add("Accept-Encoding")
-			vary.discard("")
-			response.headers["Vary"] = ",".join(vary)
-
-		if original_content_length != response.content_length:
-			response.headers["Content-Length"] = response.content_length
-			response.headers["X-Uncompressed-Content-Length"] = original_content_length
 
 	####################################################################################
 	#### MARK: Dynamic
@@ -115,8 +89,7 @@ class Squeeze:
 		encode_choice: Encoding | None,
 		minify_choice: Minification | None,
 	) -> None:
-		if encode_choice is None and minify_choice is None:
-			return  # Early exit if no compression or minification is requested
+		assert encode_choice or minify_choice
 
 		response.direct_passthrough = False
 
@@ -251,6 +224,8 @@ class Squeeze:
 			log(1, "No compression or minification requested. RETURN")
 			return response
 
+		# At least one of minify or compress is requested
+
 		original_content_length = response.content_length
 
 		if request.path.startswith("/static/"):
@@ -258,6 +233,6 @@ class Squeeze:
 		else:
 			self.run_dynamic(response, encode_choice, minify_choice)
 
-		self.recompute_headers(response, original_content_length, encode_choice)
+		update_response_headers(response, original_content_length, encode_choice)
 		log(1, f"Static cache: {self.cache_static.keys()}")
 		return response
