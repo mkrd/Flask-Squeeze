@@ -173,14 +173,14 @@ def test_disable_minification(client: FlaskClient) -> None:
 		},
 	)
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
-	assert "X-Flask-Squeeze-Minify-Duration" not in r.headers
+	assert "X-Flask-Squeeze-Minify-Info" not in r.headers
 
 
 def test_html_response_minification(client: FlaskClient) -> None:
 	"""Test minification of HTML responses."""
 	client.application.config.update({"SQUEEZE_MINIFY_HTML": True})
 	r = client.get("/", headers={"Accept-Encoding": "gzip"})
-	assert "X-Flask-Squeeze-Minify-Duration" in r.headers
+	assert "X-Flask-Squeeze-Minify-Info" in r.headers
 
 
 def test_breach_header_presence(client: FlaskClient) -> None:
@@ -200,7 +200,7 @@ def test_minification_and_compression_together(client: FlaskClient) -> None:
 	client.application.config.update({"SQUEEZE_MINIFY_CSS": True})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": "gzip"})
 	assert "Content-Encoding" in r.headers
-	assert "X-Flask-Squeeze-Minify-Duration" in r.headers
+	assert "X-Flask-Squeeze-Minify-Info" in r.headers
 	assert content_length_correct(r)
 
 
@@ -209,7 +209,7 @@ def test_debug_headers_presence(client: FlaskClient) -> None:
 	client.application.config.update({"SQUEEZE_ADD_DEBUG_HEADERS": True})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": "gzip"})
 	assert "X-Flask-Squeeze-Total-Duration" in r.headers
-	assert "X-Flask-Squeeze-Compress-Duration" in r.headers or "X-Flask-Squeeze-Minify-Duration" in r.headers
+	assert "X-Flask-Squeeze-Compress-Duration" in r.headers or "X-Flask-Squeeze-Minify-Info" in r.headers
 
 
 def test_no_minify_no_compress(client: FlaskClient) -> None:
@@ -226,15 +226,15 @@ def test_no_minify_no_compress(client: FlaskClient) -> None:
 
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": "gzip"})
 	assert "Content-Encoding" not in r.headers
-	assert "X-Flask-Squeeze-Minify-Duration" not in r.headers
-	assert "X-Flask-Squeeze-Compression-Duration" not in r.headers
+	assert "X-Flask-Squeeze-Minify-Info" not in r.headers
+	assert "X-Flask-Squeeze-Compress-Info" not in r.headers
 
 	# Dynamic file with no minification or compression
 
 	r = client.get("/", headers={"Accept-Encoding": "gzip"})
 	assert "Content-Encoding" not in r.headers
-	assert "X-Flask-Squeeze-Minify-Duration" not in r.headers
-	assert "X-Flask-Squeeze-Compression-Duration" not in r.headers
+	assert "X-Flask-Squeeze-Minify-Info" not in r.headers
+	assert "X-Flask-Squeeze-Compress-Info" not in r.headers
 
 
 def test_static_file_cache_behavior(
