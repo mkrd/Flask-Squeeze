@@ -45,4 +45,4 @@ def compress(
 def update_response_with_compressed_data(response: Response, result: CompressionResult) -> None:
 	response.set_data(result.data)
 	info = f"ratio={result.ratio:.1f}x; qualtiy={result.quality}; duration={result.duration * 1000:.1f}ms"
-	response.headers["X-Flask-Squeeze-Compress-Info"] = info
+	response.headers["X-Flask-Squeeze-Compress"] = info
