@@ -1,8 +1,9 @@
 name: Tests
 on: [push, pull_request]
+
 jobs:
 
-  # JOB
+  # JOB: Tests
   tests-job:
     runs-on: ubuntu-latest
 
@@ -15,36 +16,38 @@ jobs:
       #---- Checkout and install poetry and python
       #----------------------------------------------
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install poetry
         run: pipx install poetry
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'poetry'
 
       #----------------------------------------------
-      #---- install dependencies
+      #---- Install dependencies
       #----------------------------------------------
 
-      - name: poetry install
+      - name: Poetry install
         run: poetry install
 
       #----------------------------------------------
-      #---- show installation details
+      #---- Show installation details
       #----------------------------------------------
 
       - name: poetry --version
         run: poetry --version
-      - name: python --version in venv
+      - name: poetry run python --version
         run: poetry run python --version
       - name: ls -lah
         run: ls -lah
       - name: poetry show
         run: poetry show
+      - name: poetry show --tree
+        run: poetry show --tree
 
       #----------------------------------------------
-      #---- Tests
+      #---- Run tests with coverage report
       #----------------------------------------------
 
       - name: 🚀 Run tests with code coverage report
@@ -53,46 +56,60 @@ jobs:
       #----------------------------------------------
       #---- Save coverage artifact
       #----------------------------------------------
-      - uses: actions/upload-artifact@v3
-        with:
-          name: coverage
-          path: .coverage
 
-  # JOB
+      - name: Debug coverage file
+        run: ls -lah
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          include-hidden-files: true
+          if-no-files-found: error
+          path: ".coverage"
+
+  # JOB: Coverage Badge
   cov-badge-job:
     needs: tests-job
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      #----------------------------------------------
-      #---- Coverage badge
-      #----------------------------------------------
-      - name: ls-lah
-        run: ls -lah
+      - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v3
+      #----------------------------------------------
+      #---- Download and debug artifact
+      #----------------------------------------------
+
+      - uses: actions/download-artifact@v4
         with:
-          name: coverage
+          name: coverage-3.12
+          path: .
 
-      - name: GenerateCoverage Badge
-        uses: tj-actions/coverage-badge-py@v1.8
+
+      #----------------------------------------------
+      #---- Generate coverage badge
+      #----------------------------------------------
+
+      - name: Generate Coverage Badge
+        uses: tj-actions/coverage-badge-py@v2
         with:
           output: assets/coverage.svg
 
-      - name: Verify Changed files
-        uses: tj-actions/verify-changed-files@v13
+      #----------------------------------------------
+      #---- Verify and commit changes
+      #----------------------------------------------
+
+      - name: Verify Changed Files
+        uses: tj-actions/verify-changed-files@v16
         id: changed_files
         with:
           files: assets/coverage.svg
 
-      - name: Commit files
+      - name: Commit Files
         if: steps.changed_files.outputs.files_changed == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add assets/coverage.svg
           git commit -m "Updated assets/coverage.svg"
-      - name: Push changes
+      - name: Push Changes
         if: steps.changed_files.outputs.files_changed == 'true'
         uses: ad-m/github-push-action@master
         with:
