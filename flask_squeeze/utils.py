@@ -38,4 +38,3 @@ def update_response_headers(
 
 	if original_content_length != response.content_length:
 		response.headers["Content-Length"] = response.content_length
-		response.headers["X-Uncompressed-Content-Length"] = original_content_length
