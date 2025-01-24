@@ -1,17 +1,20 @@
-import os
 import tempfile
+from pathlib import Path
+from typing import Any, Generator
 
 import pytest
 from flask.testing import FlaskClient
 from test_app import create_app
 from werkzeug.wrappers import Response
 
+STATUS_CODE_NOT_FOUND_404 = 404
+
 ########################################################################################
 #### MARK: Fixtures
 
 
 @pytest.fixture
-def client():  # noqa
+def client() -> Generator[FlaskClient, Any, None]:
 	app = create_app()
 	app.testing = True
 	with app.test_client() as test_client:
@@ -19,17 +22,17 @@ def client():  # noqa
 
 
 @pytest.fixture(params=["", "gzip", "br", "deflate"])
-def use_encoding(request):
+def use_encoding(request: pytest.FixtureRequest) -> str:
 	return request.param
 
 
 @pytest.fixture(params=[False, True])
-def use_minify_js(request):
+def use_minify_js(request: pytest.FixtureRequest) -> bool:
 	return request.param
 
 
 @pytest.fixture(params=[False, True])
-def use_minify_css(request):
+def use_minify_css(request: pytest.FixtureRequest) -> bool:
 	return request.param
 
 
@@ -37,7 +40,7 @@ def use_minify_css(request):
 #### MARK: Utilities
 
 
-def almost_equal(a, b, percent=0.01):
+def almost_equal(a: float, b: float, percent: float = 0.01) -> bool:
 	diff = abs(int(a) - int(b))
 	return diff < percent * int(a) and diff < percent * int(b)
 
@@ -54,7 +57,7 @@ def test_get_index(client: FlaskClient, use_encoding: str) -> None:
 	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	length = r.headers.get("Content-Length")
+	length = int(r.headers.get("Content-Length", "0"))
 	encoding = r.headers.get("Content-Encoding", "")
 
 	assert use_encoding == encoding
@@ -74,7 +77,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 	client.application.config.update({"SQUEEZE_MINIFY_CSS": use_minify_css})
 	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	response_length = r.headers.get("Content-Length")
+	response_length = int(r.headers.get("Content-Length", "0"))
 	encoding = r.headers.get("Content-Encoding", "")
 
 	assert use_encoding == encoding
@@ -119,7 +122,7 @@ def test_get_from_cache(client: FlaskClient, use_encoding: str) -> None:
 
 def test_get_unknown_url(client: FlaskClient) -> None:
 	r = client.get("/static/unknown.js", headers={"Accept-Encoding": "gzip"})
-	assert r.status_code == 404
+	assert r.status_code == STATUS_CODE_NOT_FOUND_404
 
 
 def test_get_same_repeatedly(client: FlaskClient) -> None:
@@ -163,7 +166,11 @@ def test_disable_compression(client: FlaskClient) -> None:
 def test_disable_minification(client: FlaskClient) -> None:
 	"""Test that minification can be disabled."""
 	client.application.config.update(
-		{"SQUEEZE_MINIFY_JS": False, "SQUEEZE_MINIFY_CSS": False, "SQUEEZE_MINIFY_HTML": False}
+		{
+			"SQUEEZE_MINIFY_JS": False,
+			"SQUEEZE_MINIFY_CSS": False,
+			"SQUEEZE_MINIFY_HTML": False,
+		},
 	)
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
 	assert "X-Flask-Squeeze-Minify-Duration" not in r.headers
@@ -210,30 +217,32 @@ def test_static_file_cache_behavior(client: FlaskClient) -> None:
 
 	# Ensure the static directory is set
 	if (static_dir := client.application.static_folder) is None:
-		raise ValueError("Static directory not found")
+		msg = "Static directory not found"
+		raise ValueError(msg)
 
 	# Use a temporary file within the static directory
 	with tempfile.NamedTemporaryFile(dir=static_dir, suffix=".txt", delete=True) as temp_file:
 		file_path = temp_file.name
-		temp_file.write(b"Initial content")
+		file_name = Path(file_path).name
+		temp_file.write(b"Initial content " * 1000)
 		temp_file.flush()  # Ensure content is written to disk
 
 		# First request: MISS
-		r = client.get(f"/static/{os.path.basename(file_path)}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
 
 		# Second request: HIT
-		r = client.get(f"/static/{os.path.basename(file_path)}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
 
 		# Modify the file content
-		temp_file.write(b"Updated content")
+		temp_file.write(b"Updated content " * 1000)
 		temp_file.flush()  # Ensure the new content is written
 
 		# Third request: MISS
-		r = client.get(f"/static/{os.path.basename(file_path)}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
 
 		# Fourth request: HIT
-		r = client.get(f"/static/{os.path.basename(file_path)}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"

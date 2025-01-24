@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import hashlib
-from typing import Dict, Tuple, Union
 
 from flask import Flask, Response, request
 
@@ -22,10 +23,10 @@ class Squeeze:
 	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache_static: Dict[Tuple[str, str], Tuple[str, bytes]]
+	cache_static: dict[tuple[str, str], tuple[str, bytes]]
 	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
-	def __init__(self, app: Union[Flask, None] = None) -> None:
+	def __init__(self, app: Flask | None = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
 		self.cache_static = {}
 		if app is None:
@@ -85,7 +86,7 @@ class Squeeze:
 		self,
 		response: Response,
 		original_content_length: int,
-		encode_choice: Union[Encoding, None],
+		encode_choice: Encoding | None,
 	) -> None:
 		"""
 		Set the Content-Length header if it has changed.
@@ -111,8 +112,8 @@ class Squeeze:
 	def run_dynamic(
 		self,
 		response: Response,
-		encode_choice: Union[Encoding, None],
-		minify_choice: Union[Minification, None],
+		encode_choice: Encoding | None,
+		minify_choice: Minification | None,
 	) -> None:
 		if encode_choice is None and minify_choice is None:
 			return  # Early exit if no compression or minification is requested
@@ -142,8 +143,8 @@ class Squeeze:
 	def run_static(
 		self,
 		response: Response,
-		encode_choice: Union[Encoding, None],
-		minify_choice: Union[Minification, None],
+		encode_choice: Encoding | None,
+		minify_choice: Minification | None,
 	) -> None:
 		response.direct_passthrough = False  # Ensure we can read the data
 
@@ -221,7 +222,7 @@ class Squeeze:
 			log(1, "Response status code or content length is None. RETURN")
 			return response
 
-		if response.status_code < 200 or response.status_code >= 300:
+		if response.status_code not in range(200, 300):
 			log(1, "Response status code is not ok. RETURN")
 			return response
 

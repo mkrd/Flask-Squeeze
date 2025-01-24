@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import functools
 import time
-from collections.abc import Callable
-from typing import Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 from flask import Response, current_app
+
+if TYPE_CHECKING:
+	from collections.abc import Callable
 
 
 def _write_benchmark_debug_header(response: Response, header_name: str, t1: float, t2: float) -> None:
@@ -16,20 +20,19 @@ class add_debug_header:  # noqa: N801
 	def __init__(self, header_name: str) -> None:
 		self.header_name = header_name
 
-	def get_response(self, args: Tuple, kwargs: Dict) -> Response:
+	def get_response(self, args: tuple, kwargs: dict) -> Response:
 		for arg in args:
 			if isinstance(arg, Response):
 				return arg
 		for kwarg in kwargs.values():
 			if isinstance(kwarg, Response):
 				return kwarg
-		raise ValueError(
-			"You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg."
-		)
+		msg = "You can only deocrate a function with 'add_debug_header' that has a Response as an argument or kwarg."
+		raise ValueError(msg)
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
-		def wrapper(*args: tuple, **kwargs: Dict[str, Any]):
+		def wrapper(*args: tuple, **kwargs: dict[str, Any]):
 			if not current_app.config["SQUEEZE_ADD_DEBUG_HEADERS"]:
 				return method(*args, **kwargs)
 

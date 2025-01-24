@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import functools
 import time
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Union
 
 from flask import Request, current_app, request
 
@@ -35,8 +37,8 @@ class d_log:  # noqa: N801
 	def __init__(
 		self,
 		level: int = 0,
-		with_args: Union[List, None] = None,
-		with_kwargs: Union[List, None] = None,
+		with_args: Union[list, None] = None,
+		with_kwargs: Union[list, None] = None,
 	) -> None:
 		self.level = level
 		self.with_args = with_args if with_args is not None else []
@@ -44,7 +46,7 @@ class d_log:  # noqa: N801
 
 	def __call__(self, method: Callable) -> Callable:
 		@functools.wraps(method)
-		def wrapper(*args: tuple, **kwargs: Dict[str, Any]):
+		def wrapper(*args: tuple, **kwargs: dict[str, Any]):
 			if not current_app.config["SQUEEZE_VERBOSE_LOGGING"]:
 				return method(*args, **kwargs)
 
