@@ -11,7 +11,7 @@ alias r := run-test-app
 run-test-app:
     export FLASK_DEBUG=1
     export PYTHONDONTWRITEBYTECODE=1
-    cd tests && uv run flask --app "test_app:create_app()" run --host=localhost --port=5000 --debug --reload
+    cd tests && uv run flask --app "test_app:create_app()" run --host=localhost --port=5002 --debug --reload
 
 
 alias t := test
