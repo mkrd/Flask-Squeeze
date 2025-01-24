@@ -25,15 +25,13 @@ def compress(
 ) -> CompressionResult:
 	t0 = time.perf_counter()
 
-	if encode_choice == Encoding.br:
-		compressed_data = brotli.compress(data, quality=quality)
-	elif encode_choice == Encoding.deflate:
-		compressed_data = zlib.compress(data, level=quality)
-	elif encode_choice == Encoding.gzip:
-		compressed_data = gzip.compress(data, compresslevel=quality)
-	else:
-		msg = f"Invalid encoding choice {encode_choice}"
-		raise ValueError(msg)
+	compressors = {
+		Encoding.br: lambda d, q: brotli.compress(d, quality=q),
+		Encoding.deflate: lambda d, q: zlib.compress(d, level=q),
+		Encoding.gzip: lambda d, q: gzip.compress(d, compresslevel=q),
+	}
+
+	compressed_data = compressors[encode_choice](data, quality)
 
 	return CompressionResult(
 		data=compressed_data,

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import rcssmin
 import rjsmin
-from flask import Response, request
+from flask import Response
 
 from flask_squeeze.models import Minification
 
