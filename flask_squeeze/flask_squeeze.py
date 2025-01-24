@@ -89,8 +89,6 @@ class Squeeze:
 	) -> None:
 		assert encode_choice or minify_choice
 
-		response.direct_passthrough = False
-
 		# Minification
 
 		if minify_choice is not None:
@@ -117,7 +115,7 @@ class Squeeze:
 		encode_choice: Encoding | None,
 		minify_choice: Minification | None,
 	) -> None:
-		response.direct_passthrough = False  # Ensure we can read the data
+		assert encode_choice or minify_choice
 
 		encode_choice_str = encode_choice.value if encode_choice else "none"
 		cache_entry = self.cache_static.get((request.path, encode_choice_str))
@@ -125,61 +123,64 @@ class Squeeze:
 		# Serve from cache
 
 		if cache_entry is not None:
-			original_sha256, compressed_data = cache_entry
+			cached_hash, cached_data = cache_entry
 
 			# Compare the original file hash with the current file hash
 
-			current_data = response.get_data(as_text=False)
-			current_sha256 = hashlib.sha256(current_data).hexdigest()
+			data = response.get_data(as_text=False)
+			current_hash = hashlib.sha256(data).hexdigest()
 
-			if current_sha256 == original_sha256:
+			if current_hash == cached_hash:
 				log(2, "Found in cache, hashes match. RETURN")
-				response.set_data(compressed_data)
+				response.set_data(cached_data)
 				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
 				return
 
 			log(2, "File has changed.")
 
 			if minify_choice is not None:
-				minfication_result = minify(current_data, minify_choice)
+				minfication_result = minify(data, minify_choice)
+				data = minfication_result.data
 				update_response_with_minified_data(response, minfication_result)
-				current_data = minfication_result.data
+
 			if encode_choice is not None:
 				compression_result = compress(
-					current_data,
+					data,
 					encode_choice,
 					self.get_configured_quality(encode_choice, ResourceType.static),
 				)
+				data = compression_result.data
 				update_response_with_compressed_data(response, compression_result)
-				current_data = compression_result.data
 
 			# Assert: At least one of minify or compress was run
 
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache_static[(request.path, encode_choice_str)] = (current_sha256, current_data)
+			self.cache_static[(request.path, encode_choice_str)] = (current_hash, data)
 
 		# Not in cache, compress and minify
 
 		else:
-			original_data = response.get_data(as_text=False)
-			original_sha256 = hashlib.sha256(original_data).hexdigest()
+			data = response.get_data(as_text=False)
+			original_hash = hashlib.sha256(data).hexdigest()
 
 			if minify_choice is not None:
-				minification_result = minify(original_data, minify_choice)
+				minification_result = minify(data, minify_choice)
+				data = minification_result.data
 				update_response_with_minified_data(response, minification_result)
+
 			if encode_choice is not None:
 				compression_result = compress(
-					response.get_data(as_text=False),
+					data,
 					encode_choice,
 					self.get_configured_quality(encode_choice, ResourceType.static),
 				)
+				data = compression_result.data
 				update_response_with_compressed_data(response, compression_result)
 
 			# Assert: At least one of minify or compress was run
 
-			compressed_data = response.get_data(as_text=False)
-			self.cache_static[(request.path, encode_choice_str)] = (original_sha256, compressed_data)
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+			self.cache_static[(request.path, encode_choice_str)] = (original_hash, data)
 
 	####################################################################################
 	#### MARK: After Request
@@ -223,13 +224,14 @@ class Squeeze:
 
 		# At least one of minify or compress is requested
 
-		original_content_length = response.content_length
+		response.direct_passthrough = False  # In both cases, we need to read the data
 
 		if request.path.startswith("/static/"):
 			self.run_static(response, encode_choice, minify_choice)
 		else:
 			self.run_dynamic(response, encode_choice, minify_choice)
 
-		update_response_headers(response, original_content_length, encode_choice)
+		update_response_headers(response, encode_choice)
+
 		log(1, f"Static cache: {self.cache_static.keys()}")
 		return response
