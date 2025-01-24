@@ -7,7 +7,6 @@ from flask import Flask, Response, request
 from flask_squeeze.utils import add_breach_exploit_protection_header, update_response_headers
 
 from .compress import compress, update_response_with_compressed_data
-from .debug import add_debug_header
 from .log import d_log, log
 from .minify import minify, update_response_with_minified_data
 from .models import (
@@ -53,7 +52,6 @@ class Squeeze:
 		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
 		# Logging options
 		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
-		app.config.setdefault("SQUEEZE_ADD_DEBUG_HEADERS", False)
 
 		if (
 			app.config["SQUEEZE_COMPRESS"]
@@ -187,7 +185,6 @@ class Squeeze:
 	#### MARK: After Request
 
 	@d_log(level=0, with_args=[1])
-	@add_debug_header("X-Flask-Squeeze-Total-Duration")
 	def after_request(self, response: Response) -> Response:
 		log(1, f"Enter after_request({response})")
 

@@ -12,7 +12,6 @@ def create_app() -> Flask:
 		SECRET_KEY="dev",  # noqa: S106
 		SQUEEZE_MIN_SIZE=0,
 		SQUEEZE_VERBOSE_LOGGING=True,
-		SQUEEZE_ADD_DEBUG_HEADERS=True,
 	)
 
 	squeeze.init_app(app)
