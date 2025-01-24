@@ -75,7 +75,8 @@ def test_get_index(client: FlaskClient, use_encoding: str) -> None:
 def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bool) -> None:
 	print("test_get_css_file with", use_encoding, "minify:", use_minify_css)
 	client.application.config.update({"SQUEEZE_MINIFY_CSS": use_minify_css})
-	r = client.get("/static/fomantic.css", headers={"Accept-Encoding": use_encoding})
+	url = "/static/fomantic.css"
+	r = client.get(url, headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	response_length = int(r.headers.get("Content-Length", "0"))
 	encoding = r.headers.get("Content-Encoding", "")
@@ -272,3 +273,47 @@ def test_static_file_cache_behavior(
 		# Fourth request: HIT
 		r = client.get(url_path, headers={"Accept-Encoding": use_encoding})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+
+
+def test_malformed_accept_encoding(client: FlaskClient) -> None:
+	# Case 1: Missing Accept-Encoding
+	r = client.get("/static/jquery.js")
+	assert "Content-Encoding" not in r.headers
+
+	# Case 2: Malformed Accept-Encoding
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "invalid-encoding"})
+	assert "Content-Encoding" not in r.headers
+
+	# Case 3: Conflicting Accept-Encoding values
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip, br"})
+	assert r.headers.get("Content-Encoding") in {"gzip", "br"}
+
+
+def test_cache_invalidation_on_compression_disable(client: FlaskClient) -> None:
+	# Enable compression and fetch the file
+	client.application.config.update({"SQUEEZE_COMPRESS": True})
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+	# Fetch again to ensure it is cached
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+
+	# Disable compression
+	client.application.config.update({"SQUEEZE_COMPRESS": False})
+
+	# Fetch again, cache should be invalidated
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+	assert "Content-Encoding" not in r.headers
+
+
+def test_small_response_below_min_size(client: FlaskClient) -> None:
+	min_size = 1000
+	client.application.config.update({"SQUEEZE_MIN_SIZE": min_size})
+
+	# A small response
+	r = client.get("/static/smallfile.js", headers={"Accept-Encoding": "gzip"})
+	assert r.content_length < min_size  # Ensure response is small
+	assert "Content-Encoding" not in r.headers
+	assert "X-Flask-Squeeze-Minify" not in r.headers
