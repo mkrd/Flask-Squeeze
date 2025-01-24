@@ -1,9 +1,10 @@
 import gzip
+import hashlib
 import zlib
 from typing import Dict, Tuple, Union
 
 import brotli
-from flask import Flask, Response, request
+from flask import Flask, Request, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header
 
@@ -20,9 +21,11 @@ from .models import (
 
 
 class Squeeze:
-	__slots__ = "cache", "app"
-	cache: Dict[Tuple[str, str], bytes]
+	__slots__ = "app", "cache"
 	app: Flask
+
+	cache: Dict[Tuple[str, str], bytes]
+	""" (request.path, encoding) -> compressed bytes """
 
 	def __init__(self, app: Union[Flask, None] = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
