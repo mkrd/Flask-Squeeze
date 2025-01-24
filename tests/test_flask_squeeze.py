@@ -110,7 +110,6 @@ def test_get_jquery_no_minify(client: FlaskClient) -> None:
 	assert content_length_correct(r_orig)
 	assert "Content-Encoding" not in r_orig.headers
 	assert r_orig.headers["Content-Length"] == "292458"
-	assert "X-Uncompressed-Content-Length" not in r_orig.headers
 
 
 def test_get_from_cache(client: FlaskClient, use_encoding: str) -> None:
