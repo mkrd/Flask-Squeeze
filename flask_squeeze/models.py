@@ -34,7 +34,7 @@ def choose_encoding_from_headers_and_config(
 	If the client does not accept any of these encodings, or if the config
 	variable SQUEEZE_COMPRESS is False, return None.
 	"""
-	if not config.get("SQUEEZE_COMPRESS") or headers is None:
+	if not config.get("SQUEEZE_COMPRESS"):
 		return None
 	encoding = headers.get("Accept-Encoding", "").lower()
 	if "br" in encoding:

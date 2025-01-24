@@ -79,16 +79,13 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 
 	t0 = time.perf_counter()
 
-	if minify_choice == Minification.html:
-		minified = minify_html(data.decode("utf-8"))
-	elif minify_choice == Minification.css:
-		minified = minify_css(data.decode("utf-8"))
-	elif minify_choice == Minification.js:
-		minified = minify_js(data.decode("utf-8"))
-	else:
-		msg = f"Invalid minify choice {minify_choice} at {request.path}"
-		raise ValueError(msg)
-	minified = minified.encode("utf-8")
+	minifiers = {
+		Minification.html: lambda d: minify_html(d),
+		Minification.css: lambda d: minify_css(d),
+		Minification.js: lambda d: minify_js(d),
+	}
+
+	minified = minifiers[minify_choice](data.decode("utf-8")).encode("utf-8")
 
 	return MinificationResult(
 		data=minified,

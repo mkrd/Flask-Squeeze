@@ -81,3 +81,12 @@ ignore = [
 [tool.ruff.format]
 indent-style = "tab"
 quote-style = "double"
+
+
+########################################################################################
+#### MARK: Testing
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+]

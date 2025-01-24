@@ -212,8 +212,12 @@ def test_debug_headers_presence(client: FlaskClient) -> None:
 	assert "X-Flask-Squeeze-Compress-Duration" in r.headers or "X-Flask-Squeeze-Minify-Duration" in r.headers
 
 
-def test_static_file_cache_behavior(client: FlaskClient) -> None:
+def test_static_file_cache_behavior(client: FlaskClient, use_encoding: str) -> None:
 	"""Test cache behavior for a temporary static file."""
+
+	# Skip if encoding is not set
+	if not use_encoding:
+		return
 
 	# Ensure the static directory is set
 	if (static_dir := client.application.static_folder) is None:
@@ -228,11 +232,11 @@ def test_static_file_cache_behavior(client: FlaskClient) -> None:
 		temp_file.flush()  # Ensure content is written to disk
 
 		# First request: MISS
-		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": use_encoding})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
 
 		# Second request: HIT
-		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": use_encoding})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
 
 		# Modify the file content
@@ -240,9 +244,9 @@ def test_static_file_cache_behavior(client: FlaskClient) -> None:
 		temp_file.flush()  # Ensure the new content is written
 
 		# Third request: MISS
-		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": use_encoding})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
 
 		# Fourth request: HIT
-		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": "gzip"})
+		r = client.get(f"/static/{file_name}", headers={"Accept-Encoding": use_encoding})
 		assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
