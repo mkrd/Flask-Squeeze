@@ -117,20 +117,19 @@ class Squeeze:
 	) -> None:
 		assert encode_choice or minify_choice
 
-		encode_choice_str = encode_choice.value if encode_choice else "none"
-		cache_entry = self.cache_static.get((request.path, encode_choice_str))
+		data = response.get_data(as_text=False)
+		data_hash = hashlib.sha256(data).hexdigest()
+
+		cache_key = (request.path, encode_choice.value if encode_choice else "none")
 
 		# Serve from cache
 
-		if cache_entry is not None:
-			cached_hash, cached_data = cache_entry
+		if cache_key in self.cache_static:
+			cached_hash, cached_data = self.cache_static[cache_key]
 
 			# Compare the original file hash with the current file hash
 
-			data = response.get_data(as_text=False)
-			current_hash = hashlib.sha256(data).hexdigest()
-
-			if current_hash == cached_hash:
+			if data_hash == cached_hash:
 				log(2, "Found in cache, hashes match. RETURN")
 				response.set_data(cached_data)
 				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
@@ -155,14 +154,11 @@ class Squeeze:
 			# Assert: At least one of minify or compress was run
 
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache_static[(request.path, encode_choice_str)] = (current_hash, data)
+			self.cache_static[cache_key] = (data_hash, data)
 
 		# Not in cache, compress and minify
 
 		else:
-			data = response.get_data(as_text=False)
-			original_hash = hashlib.sha256(data).hexdigest()
-
 			if minify_choice is not None:
 				minification_result = minify(data, minify_choice)
 				data = minification_result.data
@@ -180,7 +176,7 @@ class Squeeze:
 			# Assert: At least one of minify or compress was run
 
 			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache_static[(request.path, encode_choice_str)] = (original_hash, data)
+			self.cache_static[cache_key] = (data_hash, data)
 
 	####################################################################################
 	#### MARK: After Request
