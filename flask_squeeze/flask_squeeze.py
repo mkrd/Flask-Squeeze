@@ -6,9 +6,9 @@ from flask import Flask, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header, update_response_headers
 
-from .compress import compress, update_response_with_compressed_data
+from .compress import CompressionResult, compress
 from .log import d_log, log
-from .minify import minify, update_response_with_minified_data
+from .minify import MinificationResult, minify
 from .models import (
 	Encoding,
 	Minification,
@@ -78,6 +78,12 @@ class Squeeze:
 
 		return self.app.config[option]
 
+	def get_cache(self, cache_key: tuple[str, str]) -> tuple[None, None] | tuple[str, bytes]:
+		"""Get the cached hash and data for a given cache key."""
+		if cache_key not in self.cache_static:
+			return None, None
+		return self.cache_static[cache_key]
+
 	####################################################################################
 	#### MARK: Dynamic
 
@@ -89,21 +95,20 @@ class Squeeze:
 	) -> None:
 		assert encode_choice or minify_choice
 
-		# Minification
+		data, minification_result, compression_result = self.squeeze(
+			response.get_data(as_text=False),
+			ResourceType.dynamic,
+			minify_choice,
+			encode_choice,
+		)
 
-		if minify_choice is not None:
-			minification_result = minify(response.get_data(as_text=False), minify_choice)
-			update_response_with_minified_data(response, minification_result)
+		response.set_data(data)
 
-		# Compression
+		if minification_result:
+			response.headers |= minification_result.headers
 
-		if encode_choice is not None:
-			compression_result = compress(
-				response.get_data(as_text=False),
-				encode_choice,
-				self.get_configured_quality(encode_choice, ResourceType.dynamic),
-			)
-			update_response_with_compressed_data(response, compression_result)
+		if compression_result:
+			response.headers |= compression_result.headers
 			add_breach_exploit_protection_header(response)
 
 	####################################################################################
@@ -121,62 +126,62 @@ class Squeeze:
 		data_hash = hashlib.sha256(data).hexdigest()
 
 		cache_key = (request.path, encode_choice.value if encode_choice else "none")
+		cached_hash, cached_data = self.get_cache(cache_key)
 
-		# Serve from cache
-
-		if cache_key in self.cache_static:
-			cached_hash, cached_data = self.cache_static[cache_key]
-
-			# Compare the original file hash with the current file hash
-
-			if data_hash == cached_hash:
-				log(2, "Found in cache, hashes match. RETURN")
-				response.set_data(cached_data)
-				response.headers["X-Flask-Squeeze-Cache"] = "HIT"
-				return
-
-			log(2, "File has changed.")
-
-			if minify_choice is not None:
-				minfication_result = minify(data, minify_choice)
-				data = minfication_result.data
-				update_response_with_minified_data(response, minfication_result)
-
-			if encode_choice is not None:
-				compression_result = compress(
-					data,
-					encode_choice,
-					self.get_configured_quality(encode_choice, ResourceType.static),
-				)
-				data = compression_result.data
-				update_response_with_compressed_data(response, compression_result)
-
-			# Assert: At least one of minify or compress was run
-
-			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache_static[cache_key] = (data_hash, data)
+		if cached_hash is not None and cached_data is not None and data_hash == cached_hash:
+			log(2, "Found in cache, hashes match. RETURN")
+			response.set_data(cached_data)
+			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
+			return
 
 		# Not in cache, compress and minify
 
-		else:
-			if minify_choice is not None:
-				minification_result = minify(data, minify_choice)
-				data = minification_result.data
-				update_response_with_minified_data(response, minification_result)
+		log(2, "Not in cache or hashes don't match. Squeeze and cache.")
+		data, minification_result, compression_result = self.squeeze(
+			data,
+			ResourceType.static,
+			minify_choice,
+			encode_choice,
+		)
 
-			if encode_choice is not None:
-				compression_result = compress(
-					data,
-					encode_choice,
-					self.get_configured_quality(encode_choice, ResourceType.static),
-				)
-				data = compression_result.data
-				update_response_with_compressed_data(response, compression_result)
+		response.set_data(data)
 
-			# Assert: At least one of minify or compress was run
+		if minification_result:
+			response.headers |= minification_result.headers
 
-			response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-			self.cache_static[cache_key] = (data_hash, data)
+		if compression_result:
+			response.headers |= compression_result.headers
+
+		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
+		self.cache_static[cache_key] = (data_hash, data)
+
+	def squeeze(
+		self,
+		data: bytes,
+		resource_type: ResourceType,
+		minify_choice: Minification | None,
+		encode_choice: Encoding | None,
+	) -> tuple[bytes, MinificationResult | None, CompressionResult | None]:
+		assert encode_choice or minify_choice
+
+		minification_result = None
+		compression_result = None
+
+		if minify_choice is not None:
+			minification_result = minify(data, minify_choice)
+			data = minification_result.data
+
+		if encode_choice is not None:
+			compression_result = compress(
+				data,
+				encode_choice,
+				self.get_configured_quality(encode_choice, resource_type),
+			)
+			data = compression_result.data
+
+		# Assert: At least one of minify or compress was run
+
+		return data, minification_result, compression_result
 
 	####################################################################################
 	#### MARK: After Request

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import rcssmin
 import rjsmin
-from flask import Response
 
 from flask_squeeze.models import Minification
 
@@ -23,6 +22,10 @@ class MinificationResult:
 				f"duration={self.duration * 1000:.1f}ms",
 			],
 		)
+
+	@property
+	def headers(self) -> dict:
+		return {"X-Flask-Squeeze-Minify": self.info}
 
 
 def minify_html(html_text: str) -> str:
@@ -102,8 +105,3 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 		duration=time.perf_counter() - t0,
 		ratio=len(data) / len(minified),
 	)
-
-
-def update_response_with_minified_data(response: Response, result: MinificationResult) -> None:
-	response.set_data(result.data)
-	response.headers["X-Flask-Squeeze-Minify"] = result.info

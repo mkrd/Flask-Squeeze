@@ -4,7 +4,6 @@ import zlib
 from dataclasses import dataclass
 
 import brotli
-from flask import Response
 
 from flask_squeeze.models import Encoding
 
@@ -26,6 +25,10 @@ class CompressionResult:
 				f"duration={self.duration * 1000:.1f}ms",
 			],
 		)
+
+	@property
+	def headers(self) -> dict:
+		return {"X-Flask-Squeeze-Compress": self.info}
 
 
 def compress(
@@ -50,8 +53,3 @@ def compress(
 		duration=time.perf_counter() - t0,
 		ratio=len(data) / len(compressed_data),
 	)
-
-
-def update_response_with_compressed_data(response: Response, result: CompressionResult) -> None:
-	response.set_data(result.data)
-	response.headers["X-Flask-Squeeze-Compress"] = result.info
