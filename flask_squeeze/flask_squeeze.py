@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from flask import Flask, Response, request
 
@@ -10,6 +11,7 @@ from .compress import CompressionResult, compress
 from .log import d_log, log
 from .minify import MinificationResult, minify
 from .models import (
+	CacheKey,
 	Encoding,
 	Minification,
 	ResourceType,
@@ -22,7 +24,7 @@ class Squeeze:
 	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache_static: dict[tuple[str, str], tuple[str, bytes]]
+	cache_static: dict[str, tuple[str, bytes]]
 	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
 	def __init__(self, app: Flask | None = None) -> None:
@@ -52,6 +54,8 @@ class Squeeze:
 		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
 		# Logging options
 		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
+		# Cache options
+		app.config.setdefault("SQUEEZE_PERSISTENT_CACHE", False)
 
 		if (
 			app.config["SQUEEZE_COMPRESS"]
@@ -78,11 +82,54 @@ class Squeeze:
 
 		return self.app.config[option]
 
-	def get_cache(self, cache_key: tuple[str, str]) -> tuple[None, None] | tuple[str, bytes]:
+	def get_cache(self, cache_key: CacheKey) -> tuple[None, None] | tuple[str, bytes]:
 		"""Get the cached hash and data for a given cache key."""
-		if cache_key not in self.cache_static:
+
+		# Found in cache, return the cached data
+
+		if cache_key.normalized in self.cache_static:
+			return self.cache_static[cache_key.normalized]
+
+		# Assert: cache key not in cache_static
+
+		if not self.app.config["SQUEEZE_PERSISTENT_CACHE"]:
 			return None, None
-		return self.cache_static[cache_key]
+
+		# Assert: persistent cache is enabled
+
+		cache_dir = Path(self.app.root_path) / ".cache" / "flask_squeeze"
+
+		# Check if file with cache file name exists
+		bytes_file = cache_dir / (cache_key.normalized + ".bytes")
+		hash_file = cache_dir / (cache_key.normalized + ".hash")
+
+		if bytes_file.exists() and hash_file.exists():
+			# Read the hash and data bytes from the file
+			with hash_file.open("r") as f:
+				original_hash = f.read()
+			with bytes_file.open("rb") as f:
+				data = f.read()
+
+			return original_hash, data
+
+		return None, None
+
+	def set_cache(self, cache_key: CacheKey, original_hash: str, data: bytes) -> None:
+		"""Set the cached data for a given cache key."""
+
+		# Set the cached data in cache dict
+		self.cache_static[cache_key.normalized] = (original_hash, data)
+
+		# Set the cached data in persistent cache, if enabled
+		if self.app.config["SQUEEZE_PERSISTENT_CACHE"]:
+			cache_dir = Path(self.app.root_path) / ".cache" / "flask_squeeze"
+			cache_dir.mkdir(exist_ok=True, parents=True)
+
+			# Write the hash and data bytes to the file
+			with (cache_dir / (cache_key.normalized + ".bytes")).open("wb") as file:
+				file.write(data)
+			with (cache_dir / (cache_key.normalized + ".hash")).open("w") as file:
+				file.write(original_hash)
 
 	####################################################################################
 	#### MARK: Dynamic
@@ -125,7 +172,7 @@ class Squeeze:
 		data = response.get_data(as_text=False)
 		data_hash = hashlib.sha256(data).hexdigest()
 
-		cache_key = (request.path, encode_choice.value if encode_choice else "none")
+		cache_key = CacheKey(request.path, encode_choice)
 		cached_hash, cached_data = self.get_cache(cache_key)
 
 		if cached_hash is not None and cached_data is not None and data_hash == cached_hash:
@@ -153,7 +200,9 @@ class Squeeze:
 			response.headers |= compression_result.headers
 
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
-		self.cache_static[cache_key] = (data_hash, data)
+
+		# Cache the compressed data, with the dash of the original data
+		self.set_cache(cache_key, data_hash, data)
 
 	def squeeze(
 		self,
