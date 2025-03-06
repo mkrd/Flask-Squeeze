@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 from dataclasses import dataclass
 
@@ -8,24 +10,20 @@ from flask_squeeze.models import Minification
 
 
 @dataclass(frozen=True)
-class MinificationResult:
-	data: bytes
+class MinificationInfo:
 	minification: Minification
 	duration: float
 	ratio: float
 
 	@property
-	def info(self) -> str:
-		return "; ".join(
+	def headers(self) -> dict:
+		value = "; ".join(
 			[
 				f"ratio={self.ratio:.1f}x",
 				f"duration={self.duration * 1000:.1f}ms",
 			],
 		)
-
-	@property
-	def headers(self) -> dict:
-		return {"X-Flask-Squeeze-Minify": self.info}
+		return {"X-Flask-Squeeze-Minify": value}
 
 
 def minify_html(html_text: str) -> str:
@@ -84,7 +82,7 @@ def minify_js(data: str) -> str:
 	return minified
 
 
-def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
+def minify(data: bytes, minify_choice: Minification) -> tuple[bytes, MinificationInfo]:
 	"""
 	Run the minification using the correct minify function and return the minified data.
 	"""
@@ -97,11 +95,10 @@ def minify(data: bytes, minify_choice: Minification) -> MinificationResult:
 		Minification.js: lambda d: minify_js(d),
 	}
 
-	minified = minifiers[minify_choice](data.decode("utf-8")).encode("utf-8")
+	minified_data = minifiers[minify_choice](data.decode("utf-8")).encode("utf-8")
 
-	return MinificationResult(
-		data=minified,
+	return minified_data, MinificationInfo(
 		minification=minify_choice,
 		duration=time.perf_counter() - t0,
-		ratio=len(data) / len(minified),
+		ratio=len(data) / len(minified_data),
 	)

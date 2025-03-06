@@ -7,9 +7,9 @@ from flask import Flask, Response, request
 
 from flask_squeeze.utils import add_breach_exploit_protection_header, update_response_headers
 
-from .compress import CompressionResult, compress
+from .compress import CompressionInfo, compress
 from .log import d_log, log
-from .minify import MinificationResult, minify
+from .minify import MinificationInfo, minify
 from .models import (
 	CacheKey,
 	Encoding,
@@ -142,7 +142,7 @@ class Squeeze:
 	) -> None:
 		assert encode_choice or minify_choice
 
-		data, minification_result, compression_result = self.squeeze(
+		data, minification_info, compression_info = self.squeeze(
 			response.get_data(as_text=False),
 			ResourceType.dynamic,
 			minify_choice,
@@ -151,11 +151,11 @@ class Squeeze:
 
 		response.set_data(data)
 
-		if minification_result:
-			response.headers |= minification_result.headers
+		if minification_info:
+			response.headers |= minification_info.headers
 
-		if compression_result:
-			response.headers |= compression_result.headers
+		if compression_info:
+			response.headers |= compression_info.headers
 			add_breach_exploit_protection_header(response)
 
 	####################################################################################
@@ -167,6 +167,11 @@ class Squeeze:
 		encode_choice: Encoding | None,
 		minify_choice: Minification | None,
 	) -> None:
+		"""
+		If the hash of the current response matches the hash of the cached response,
+		return the cached response. Otherwise, compress and minify the response and
+		cache the compressed response.
+		"""
 		assert encode_choice or minify_choice
 
 		data = response.get_data(as_text=False)
@@ -184,7 +189,7 @@ class Squeeze:
 		# Not in cache, compress and minify
 
 		log(2, "Not in cache or hashes don't match. Squeeze and cache.")
-		data, minification_result, compression_result = self.squeeze(
+		data, minification_info, compression_info = self.squeeze(
 			data,
 			ResourceType.static,
 			minify_choice,
@@ -193,11 +198,11 @@ class Squeeze:
 
 		response.set_data(data)
 
-		if minification_result:
-			response.headers |= minification_result.headers
+		if minification_info:
+			response.headers |= minification_info.headers
 
-		if compression_result:
-			response.headers |= compression_result.headers
+		if compression_info:
+			response.headers |= compression_info.headers
 
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 
@@ -210,27 +215,22 @@ class Squeeze:
 		resource_type: ResourceType,
 		minify_choice: Minification | None,
 		encode_choice: Encoding | None,
-	) -> tuple[bytes, MinificationResult | None, CompressionResult | None]:
+	) -> tuple[bytes, MinificationInfo | None, CompressionInfo | None]:
 		assert encode_choice or minify_choice
 
-		minification_result = None
-		compression_result = None
-
+		minification_info = None
 		if minify_choice is not None:
-			minification_result = minify(data, minify_choice)
-			data = minification_result.data
+			data, minification_info = minify(data, minify_choice)
 
+		compression_info = None
 		if encode_choice is not None:
-			compression_result = compress(
+			data, compression_info = compress(
 				data,
 				encode_choice,
 				self.get_configured_quality(encode_choice, resource_type),
 			)
-			data = compression_result.data
 
-		# Assert: At least one of minify or compress was run
-
-		return data, minification_result, compression_result
+		return data, minification_info, compression_info
 
 	####################################################################################
 	#### MARK: After Request
