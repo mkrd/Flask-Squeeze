@@ -1,38 +1,39 @@
+from __future__ import annotations
+
 import gzip
 import time
 import zlib
 from dataclasses import dataclass
 
 import brotli
-from flask import Response
 
 from flask_squeeze.models import Encoding
 
 
 @dataclass(frozen=True)
-class CompressionResult:
-	data: bytes
+class CompressionInfo:
 	encoding: Encoding
 	quality: int
 	duration: float
 	ratio: float
 
 	@property
-	def info(self) -> str:
-		return "; ".join(
+	def headers(self) -> dict:
+		value = "; ".join(
 			[
 				f"ratio={self.ratio:.1f}x",
 				f"qualtiy={self.quality}",
 				f"duration={self.duration * 1000:.1f}ms",
 			],
 		)
+		return {"X-Flask-Squeeze-Compress": value}
 
 
 def compress(
 	data: bytes,
 	encode_choice: Encoding,
 	quality: int,
-) -> CompressionResult:
+) -> tuple[bytes, CompressionInfo]:
 	t0 = time.perf_counter()
 
 	compressors = {
@@ -43,15 +44,9 @@ def compress(
 
 	compressed_data = compressors[encode_choice](data, quality)
 
-	return CompressionResult(
-		data=compressed_data,
+	return compressed_data, CompressionInfo(
 		encoding=encode_choice,
 		quality=quality,
 		duration=time.perf_counter() - t0,
 		ratio=len(data) / len(compressed_data),
 	)
-
-
-def update_response_with_compressed_data(response: Response, result: CompressionResult) -> None:
-	response.set_data(result.data)
-	response.headers["X-Flask-Squeeze-Compress"] = result.info

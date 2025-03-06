@@ -317,3 +317,29 @@ def test_small_response_below_min_size(client: FlaskClient) -> None:
 	assert r.content_length < min_size  # Ensure response is small
 	assert "Content-Encoding" not in r.headers
 	assert "X-Flask-Squeeze-Minify" not in r.headers
+
+
+def test_persistent_cache() -> None:
+	app = create_app({"SQUEEZE_PERSISTENT_CACHE": True})
+	client = app.test_client()
+
+	# Enable compression and fetch the file
+	app.config.update({"SQUEEZE_COMPRESS": True})
+
+	# First request: MISS
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+	# Kill app, start a new one
+	del app
+	app = create_app({"SQUEEZE_PERSISTENT_CACHE": True})
+	client = app.test_client()
+
+	# Fetch again to ensure it is cached
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+
+	# Relete entire cache directory
+	cache_dir = Path(app.root_path) / ".cache" / "flask_squeeze"
+	for file in cache_dir.rglob("*"):
+		file.unlink()
