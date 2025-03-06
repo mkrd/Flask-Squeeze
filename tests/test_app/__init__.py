@@ -8,16 +8,16 @@ from flask_squeeze import Squeeze
 def create_app(update_config: dict | None = None) -> Flask:
 	squeeze = Squeeze()
 	app = Flask(__name__, instance_relative_config=True)
-	app.config.from_mapping(
-		{
-			"ENV": "development",
-			"DEBUG": True,
-			"SECRET_KEY": "dev",
-			"SQUEEZE_MIN_SIZE": 0,
-			"SQUEEZE_VERBOSE_LOGGING": True,
-		}
-		| (update_config or {}),
-	)
+	config = {
+		"ENV": "development",
+		"DEBUG": True,
+		"SECRET_KEY": "dev",
+		"SQUEEZE_MIN_SIZE": 0,
+		"SQUEEZE_VERBOSE_LOGGING": True,
+	}
+	if update_config:
+		config.update(update_config)
+	app.config.from_mapping(config)
 
 	squeeze.init_app(app)
 
