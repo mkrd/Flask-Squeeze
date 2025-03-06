@@ -85,7 +85,7 @@ class Squeeze:
 	def get_cache(self, cache_key: CacheKey) -> tuple[None, None] | tuple[str, bytes]:
 		"""Get the cached hash and data for a given cache key."""
 
-		# Found in cache, return the cached data
+		# If found in cache_static, return the cached data
 
 		if cache_key.normalized in self.cache_static:
 			return self.cache_static[cache_key.normalized]

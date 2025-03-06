@@ -33,7 +33,9 @@ class CacheKey:
 
 	@property
 	def normalized(self) -> str:
-		return self.path.replace("/", "_") + (self.encoding.value if self.encoding else "none")
+		flat_path = self.path.replace("/", "_")
+		encoding = self.encoding.value if self.encoding else "none"
+		return f"{flat_path}.{encoding}"
 
 
 def choose_encoding_from_headers_and_config(
