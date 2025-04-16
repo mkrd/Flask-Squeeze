@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from flask import Flask, Response, request
 
@@ -53,6 +54,8 @@ class Squeeze:
 		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
 		# Logging options
 		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
+		# Cache options
+		app.config.setdefault("SQUEEZE_PERSISTENT_CACHE", False)
 
 		if (
 			app.config["SQUEEZE_COMPRESS"]
@@ -82,8 +85,32 @@ class Squeeze:
 	def get_cache(self, cache_key: CacheKey) -> tuple[None, None] | tuple[str, bytes]:
 		"""Get the cached hash and data for a given cache key."""
 
+		# If found in cache_static, return the cached data
+
 		if cache_key.normalized in self.cache_static:
 			return self.cache_static[cache_key.normalized]
+
+		# Assert: cache key not in cache_static
+
+		if not self.app.config["SQUEEZE_PERSISTENT_CACHE"]:
+			return None, None
+
+		# Assert: persistent cache is enabled
+
+		cache_dir = Path(self.app.root_path) / ".cache" / "flask_squeeze"
+
+		# Check if file with cache file name exists
+		bytes_file = cache_dir / (cache_key.normalized + ".bytes")
+		hash_file = cache_dir / (cache_key.normalized + ".hash")
+
+		if bytes_file.exists() and hash_file.exists():
+			# Read the hash and data bytes from the file
+			with hash_file.open("r") as f:
+				original_hash = f.read()
+			with bytes_file.open("rb") as f:
+				data = f.read()
+
+			return original_hash, data
 
 		return None, None
 
@@ -92,6 +119,17 @@ class Squeeze:
 
 		# Set the cached data in cache dict
 		self.cache_static[cache_key.normalized] = (original_hash, data)
+
+		# Set the cached data in persistent cache, if enabled
+		if self.app.config["SQUEEZE_PERSISTENT_CACHE"]:
+			cache_dir = Path(self.app.root_path) / ".cache" / "flask_squeeze"
+			cache_dir.mkdir(exist_ok=True, parents=True)
+
+			# Write the hash and data bytes to the file
+			with (cache_dir / (cache_key.normalized + ".bytes")).open("wb") as file:
+				file.write(data)
+			with (cache_dir / (cache_key.normalized + ".hash")).open("w") as file:
+				file.write(original_hash)
 
 	####################################################################################
 	#### MARK: Dynamic
