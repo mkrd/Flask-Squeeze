@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Union
 
@@ -24,18 +23,6 @@ class Minification(Enum):
 	js = "js"
 	css = "css"
 	html = "html"
-
-
-@dataclass(frozen=True)
-class CacheKey:
-	path: str
-	encoding: Encoding | None
-
-	@property
-	def normalized(self) -> str:
-		flat_path = self.path.replace("/", "_")
-		encoding = self.encoding.value if self.encoding else "none"
-		return f"{flat_path}.{encoding}"
 
 
 def choose_encoding_from_headers_and_config(
