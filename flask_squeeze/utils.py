@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from flask import Response
 
-	from flask_squeeze.models import Encoding
+	from .models import Encoding
 
 
 def add_breach_exploit_protection_header(response: Response) -> None:

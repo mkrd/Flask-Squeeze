@@ -4,31 +4,30 @@ import hashlib
 
 from flask import Flask, Response, request
 
-from flask_squeeze.utils import add_breach_exploit_protection_header, update_response_headers
-
+from .cache import Cache, CacheKey
 from .compress import CompressionInfo, compress
 from .log import d_log, log
 from .minify import MinificationInfo, minify
 from .models import (
-	CacheKey,
 	Encoding,
 	Minification,
 	ResourceType,
 	choose_encoding_from_headers_and_config,
 	choose_minification_from_mimetype_and_config,
 )
+from .utils import add_breach_exploit_protection_header, update_response_headers
 
 
 class Squeeze:
 	__slots__ = "app", "cache_static"
 	app: Flask
 
-	cache_static: dict[str, tuple[str, bytes]]
+	cache_static: Cache
 	""" (request.path, encoding) -> (original file sha256 hash, compressed bytes) """
 
 	def __init__(self, app: Flask | None = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
-		self.cache_static = {}
+		self.cache_static = Cache(data={})
 		if app is None:
 			return
 		self.app = app
@@ -79,20 +78,6 @@ class Squeeze:
 
 		return self.app.config[option]
 
-	def get_cache(self, cache_key: CacheKey) -> tuple[None, None] | tuple[str, bytes]:
-		"""Get the cached hash and data for a given cache key."""
-
-		if cache_key.normalized in self.cache_static:
-			return self.cache_static[cache_key.normalized]
-
-		return None, None
-
-	def set_cache(self, cache_key: CacheKey, original_hash: str, data: bytes) -> None:
-		"""Set the cached data for a given cache key."""
-
-		# Set the cached data in cache dict
-		self.cache_static[cache_key.normalized] = (original_hash, data)
-
 	####################################################################################
 	#### MARK: Dynamic
 
@@ -140,11 +125,11 @@ class Squeeze:
 		data_hash = hashlib.sha256(data).hexdigest()
 
 		cache_key = CacheKey(request.path, encode_choice)
-		cached_hash, cached_data = self.get_cache(cache_key)
+		cached = self.cache_static.get(cache_key)
 
-		if cached_hash is not None and cached_data is not None and data_hash == cached_hash:
+		if cached is not None and data_hash == cached.original_hash:
 			log(2, "Found in cache, hashes match. RETURN")
-			response.set_data(cached_data)
+			response.set_data(cached.data)
 			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
 			return
 
@@ -169,7 +154,7 @@ class Squeeze:
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 
 		# Cache the compressed data, with the dash of the original data
-		self.set_cache(cache_key, data_hash, data)
+		self.cache_static.set(cache_key, data_hash, data)
 
 	def squeeze(
 		self,
@@ -245,5 +230,5 @@ class Squeeze:
 
 		update_response_headers(response, encode_choice)
 
-		log(1, f"Static cache: {self.cache_static.keys()}")
+		log(1, f"Static cache: {self.cache_static.data.keys()}")
 		return response

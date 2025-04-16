@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import rcssmin
 import rjsmin
 
-from flask_squeeze.models import Minification
+from .models import Minification
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import brotli
 
-from flask_squeeze.models import Encoding
+from .models import Encoding
 
 
 @dataclass(frozen=True)
