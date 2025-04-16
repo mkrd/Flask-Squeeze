@@ -152,10 +152,10 @@ class Squeeze:
 		response.set_data(data)
 
 		if minification_info:
-			response.headers |= minification_info.headers
+			response.headers.update(minification_info.headers)
 
 		if compression_info:
-			response.headers |= compression_info.headers
+			response.headers.update(compression_info.headers)
 			add_breach_exploit_protection_header(response)
 
 	####################################################################################
@@ -199,10 +199,10 @@ class Squeeze:
 		response.set_data(data)
 
 		if minification_info:
-			response.headers |= minification_info.headers
+			response.headers.update(minification_info.headers)
 
 		if compression_info:
-			response.headers |= compression_info.headers
+			response.headers.update(compression_info.headers)
 
 		response.headers["X-Flask-Squeeze-Cache"] = "MISS"
 
