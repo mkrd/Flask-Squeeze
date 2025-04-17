@@ -8,11 +8,7 @@ from .cache import Cache, CacheKey
 from .compress import CompressionInfo, compress
 from .log import d_log, log
 from .minify import MinificationInfo, minify
-from .models import (
-	Encoding,
-	Minification,
-	ResourceType,
-)
+from .models import Encoding, Minification, ResourceType
 from .utils import add_breach_exploit_protection_header, update_response_headers
 
 
