@@ -30,6 +30,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.14.1",
     "pytest-cov ~= 5.0.0",
     "ruff>=0.9.3",
 ]
@@ -90,3 +91,10 @@ quote-style = "double"
 exclude_also = [
     "if TYPE_CHECKING:",
 ]
+
+
+########################################################################################
+#### MARK: Mypy
+
+[tool.mypy]
+ignore_missing_imports = true
