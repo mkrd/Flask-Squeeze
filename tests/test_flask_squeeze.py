@@ -46,7 +46,7 @@ def almost_equal(a: float, b: float, percent: float = 0.01) -> bool:
 
 
 def content_length_correct(r: Response) -> bool:
-	return int(r.headers.get("Content-Length", 0)) == len(r.data)
+	return r.headers.get("Content-Length", 0) == str(len(r.data))
 
 
 ########################################################################################
