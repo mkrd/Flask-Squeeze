@@ -31,21 +31,23 @@ class CompressionInfo:
 
 def compress(
 	data: bytes,
-	encode_choice: Encoding,
+	encoding: Encoding,
 	quality: int,
 ) -> tuple[bytes, CompressionInfo]:
 	t0 = time.perf_counter()
 
-	compressors = {
-		Encoding.br: lambda d, q: brotli.compress(d, quality=q),
-		Encoding.deflate: lambda d, q: zlib.compress(d, level=q),
-		Encoding.gzip: lambda d, q: gzip.compress(d, compresslevel=q),
-	}
-
-	compressed_data = compressors[encode_choice](data, quality)
+	if encoding is Encoding.br:
+		compressed_data = brotli.compress(data, quality=quality)
+	elif encoding is Encoding.deflate:
+		compressed_data = zlib.compress(data, level=quality)
+	elif encoding is Encoding.gzip:
+		compressed_data = gzip.compress(data, compresslevel=quality)
+	else:
+		msg = f"Unsupported encoding: {encoding}"
+		raise ValueError(msg)
 
 	return compressed_data, CompressionInfo(
-		encoding=encode_choice,
+		encoding=encoding,
 		quality=quality,
 		duration=time.perf_counter() - t0,
 		ratio=len(data) / len(compressed_data),

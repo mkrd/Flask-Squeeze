@@ -26,7 +26,7 @@ class MinificationInfo:
 		return {"X-Flask-Squeeze-Minify": value}
 
 
-def minify_html(html_text: str) -> str:
+def minify_html(html_bytes: bytes) -> bytes:
 	"""
 	Minifies HTML by removing white space and comments.
 	Additionally it uses minify_css and minify_js functions
@@ -35,6 +35,8 @@ def minify_html(html_text: str) -> str:
 	"""
 
 	# TODO: Find robust way to minify
+
+	# html_text = html_bytes.decode("utf-8")
 
 	# minified: list[str] = []
 	# parser = etree.HTMLParser(recover=False)
@@ -67,38 +69,40 @@ def minify_html(html_text: str) -> str:
 
 	# return "".join(minified)
 
-	return html_text
+	return html_bytes
 
 
-def minify_css(data: str) -> str:
-	minified = rcssmin.cssmin(data, keep_bang_comments=False)
-	assert isinstance(minified, str)
+def minify_css(data: bytes) -> bytes:
+	minified = rcssmin.cssmin(data)
+	assert isinstance(minified, bytes)
 	return minified
 
 
-def minify_js(data: str) -> str:
-	minified = rjsmin.jsmin(data, keep_bang_comments=False)
-	assert isinstance(minified, str)
+def minify_js(data: bytes) -> bytes:
+	minified = rjsmin.jsmin(data)
+	assert isinstance(minified, bytes)
 	return minified
 
 
-def minify(data: bytes, minify_choice: Minification) -> tuple[bytes, MinificationInfo]:
+def minify(data: bytes, minification: Minification) -> tuple[bytes, MinificationInfo]:
 	"""
 	Run the minification using the correct minify function and return the minified data.
 	"""
 
 	t0 = time.perf_counter()
 
-	minifiers = {
-		Minification.html: lambda d: minify_html(d),
-		Minification.css: lambda d: minify_css(d),
-		Minification.js: lambda d: minify_js(d),
-	}
-
-	minified_data = minifiers[minify_choice](data.decode("utf-8")).encode("utf-8")
+	if minification is Minification.html:
+		minified_data = minify_html(data)
+	elif minification is Minification.css:
+		minified_data = minify_css(data)
+	elif minification is Minification.js:
+		minified_data = minify_js(data)
+	else:
+		msg = f"Unsupported minification: {minification}"
+		raise ValueError(msg)
 
 	return minified_data, MinificationInfo(
-		minification=minify_choice,
+		minification=minification,
 		duration=time.perf_counter() - t0,
 		ratio=len(data) / len(minified_data),
 	)
