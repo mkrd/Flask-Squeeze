@@ -30,4 +30,4 @@ def update_response_headers(response: Response, encode_choice: Encoding | None) 
 		vary = {x.strip() for x in response.headers.get("Vary", "").split(",")}
 		response.headers["Vary"] = ",".join((vary | {"Accept-Encoding"}) - {""})
 
-	response.headers["Content-Length"] = response.content_length
+	response.headers["Content-Length"] = str(response.content_length)
