@@ -8,13 +8,7 @@ from .cache import Cache, CacheKey
 from .compress import CompressionInfo, compress
 from .log import d_log, log
 from .minify import MinificationInfo, minify
-from .models import (
-	Encoding,
-	Minification,
-	ResourceType,
-	choose_encoding_from_headers_and_config,
-	choose_minification_from_mimetype_and_config,
-)
+from .models import Encoding, Minification, ResourceType
 from .utils import add_breach_exploit_protection_header, update_response_headers
 
 
@@ -205,12 +199,12 @@ class Squeeze:
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.
 
-		encode_choice = choose_encoding_from_headers_and_config(
+		encode_choice = Encoding.get_from_headers_and_config(
 			request.headers,
 			self.app.config,
 		)
 
-		minify_choice = choose_minification_from_mimetype_and_config(
+		minify_choice = Minification.get_from_mimetype_and_config(
 			response.mimetype,
 			self.app.config,
 		)
