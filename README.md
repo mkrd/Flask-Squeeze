@@ -5,7 +5,7 @@
 ![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/master/assets/coverage.svg?raw=1)
 
 Flask-Squeeze is a Flask extension that automatically:
-- **Minifies** repsonses with the mimetypes javascript and css
+- **Minifies** responses with the mimetypes javascript and css
 - **Compresses** all responses with brotli if the browser supports it, or gzip if the browser supports it!
 - **Protects** against the BREACH exploit
 - **Caches** static files so that they don't have to be re-compressed. The cache will be cleared each time Flask restarts. Files are considered static if the the substring "/static/" is in their request path.
@@ -55,7 +55,7 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 | `SQUEEZE_MINIFY_JS` | `True` | Enable or disable js minification using rjsmin |
 
 ### Compression level options
-> Static files are chached, so they only have to be compressed once.
+> Static files are cached, so they only have to be compressed once.
 > Dynamic files like generated HTML files will not be cached, so they will be compressed for each response.
 
 | Option | Default | Description |
