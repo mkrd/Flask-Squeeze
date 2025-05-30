@@ -46,11 +46,14 @@ jobs:
 
 
       #----------------------------------------------
-      #---- Linting and Static Analysis (NEW)
+      #---- Linting and Static Analysis
       #----------------------------------------------
 
-      - name: 🔎 Run Ruff Linter
-        run: uv run ruff check . # Or 'ruff format --check .' if you want formatting checks
+      - name: 🔎 Ruff checks
+        run: uv run ruff check .
+
+      - name: 🔎 Ruff format checks
+        run: ruff format --check .
 
       - name: 🐍 Mypy Static Type Checker
         run: uv run mypy .
@@ -66,7 +69,7 @@ jobs:
       #---- Save coverage artifact
       #----------------------------------------------
 
-      - name: Debug coverage file
+      - name: Show artifacts (ls -lah)
         run: ls -lah
       - uses: actions/upload-artifact@v4
         with:
