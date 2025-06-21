@@ -14,6 +14,7 @@ def create_app(update_config: dict | None = None) -> Flask:
 		"SECRET_KEY": "dev",
 		"SQUEEZE_MIN_SIZE": 0,
 		"SQUEEZE_VERBOSE_LOGGING": True,
+		"SQUEEZE_CACHE_DIR": ".cache/flask_squeeze/",
 	}
 	if update_config:
 		config.update(update_config)
