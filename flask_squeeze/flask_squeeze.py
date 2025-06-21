@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from flask import Flask, Response, request
 
@@ -21,7 +22,6 @@ class Squeeze:
 
 	def __init__(self, app: Flask | None = None) -> None:
 		"""Initialize Flask-Squeeze with or without app."""
-		self.cache_static = Cache(data={})
 		if app is None:
 			return
 		self.app = app
@@ -44,8 +44,20 @@ class Squeeze:
 		app.config.setdefault("SQUEEZE_MINIFY_JS", True)
 		app.config.setdefault("SQUEEZE_MINIFY_CSS", True)
 		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
+		# Caching options
+		app.config.setdefault("SQUEEZE_CACHE_DIR", None)
 		# Logging options
 		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
+
+		# Initialize cache
+
+		cache_dir = app.config.get("SQUEEZE_CACHE_DIR")
+		self.cache_static = Cache(
+			data={},
+			cache_dir=Path(cache_dir) if cache_dir else None,
+		)
+
+		# Initialize after_request hook
 
 		if (
 			app.config["SQUEEZE_COMPRESS"]

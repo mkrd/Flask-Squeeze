@@ -317,3 +317,83 @@ def test_small_response_below_min_size(client: FlaskClient) -> None:
 	assert r.content_length < min_size  # Ensure response is small
 	assert "Content-Encoding" not in r.headers
 	assert "X-Flask-Squeeze-Minify" not in r.headers
+
+
+def test_persistent_cache_basic(client: FlaskClient) -> None:
+	"""Test basic persistent caching functionality."""
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "flask_squeeze_cache"
+
+		# Configure persistent caching
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+
+		# Reinitialize the squeeze instance with the new config
+		from flask_squeeze import Squeeze
+
+		squeeze = Squeeze()
+		squeeze.init_app(client.application)
+
+		# First request - should be a cache miss
+		r1 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+		assert r1.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+		# Second request - should be a cache hit from memory
+		r2 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+		assert r2.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+		assert r1.data == r2.data
+
+		# Verify cache files were created
+		cache_files = list(cache_dir.glob("*.cache"))
+		meta_files = list(cache_dir.glob("*.meta"))
+		assert len(cache_files) > 0
+		assert len(meta_files) > 0
+
+
+def test_persistent_cache_across_restarts(client: FlaskClient) -> None:
+	"""Test that cache persists across application restarts."""
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "flask_squeeze_cache"
+
+		# Configure persistent caching
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+
+		# Create first squeeze instance
+		from flask_squeeze import Squeeze
+
+		squeeze1 = Squeeze()
+		squeeze1.init_app(client.application)
+
+		# First request
+		r1 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+		assert r1.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+		# Create a second squeeze instance to simulate a restart
+
+		app_2 = create_app()
+		app_2.testing = True
+		client_2 = app_2.test_client()
+		client_2.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+		squeeze2 = Squeeze()
+		squeeze2.init_app(client_2.application)
+
+		# Second request after "restart" - should be cache hit from disk
+		r2 = client_2.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+		assert r2.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+		assert r1.data == r2.data
+
+
+def test_persistent_cache_disabled(client: FlaskClient) -> None:
+	"""Test that without cache directory, only in-memory cache is used."""
+	# Don't set SQUEEZE_CACHE_DIR
+	from flask_squeeze import Squeeze
+
+	squeeze = Squeeze()
+	squeeze.init_app(client.application)
+
+	# First request
+	r1 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+	assert r1.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+	# Second request - should be cache hit from memory
+	r2 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
+	assert r2.headers.get("X-Flask-Squeeze-Cache") == "HIT"
