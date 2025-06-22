@@ -51,33 +51,21 @@ You can configure Flask-Squeeze with the following options in your [Flask config
 | `SQUEEZE_MIN_SIZE` | `500` | Defines the minimum file size in bytes to activate the compression |
 | `SQUEEZE_CACHE_DIR` | `None` | Directory to store persistent cache files. If `None`, only in-memory caching is used |
 | `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable or disable verbose logging. If enabled, Flask-Squeeze will print what it does into the terminal in a highlighted color |
+| `SQUEEZE_CACHE_DIR` | `None` | Directory to store persistent cache files. If `None`, only in-memory caching is used |
 
 ### Persistent Caching
-Flask-Squeeze supports persistent caching of compressed static files. When enabled, compressed responses are saved to disk and reloaded on server restart, eliminating the need to recompress unchanged files.
+Flask-Squeeze supports persistent caching of compressed static files.
+When enabled, compressed responses are saved to disk and reloaded on server restart, eliminating the need to recompress unchanged files.
 
+If you want to enable persistent caching, set the `SQUEEZE_CACHE_DIR` option in your Flask app's configuration:
 ```python
-app.config['SQUEEZE_CACHE_DIR'] = './cache/flask_squeeze/'  # Enable persistent caching
+SQUEEZE_CACHE_DIR = './cache/flask_squeeze/'  # Enable persistent caching
 ```
-
 Benefits:
 - **Faster server startup**: No need to recompress static files on restart
 - **Reduced CPU usage**: Avoid redundant compression operations
 - **Consistent performance**: Immediate cache hits after restart
 
-Cache files are automatically managed:
-- Cache entries are validated using file content hashes
-- Stale cache entries are automatically replaced when files change
-- Use `squeeze.clear_cache()` to manually clear the cache
-
-#### Cache Management
-```python
-from flask_squeeze import Squeeze
-
-squeeze = Squeeze(app)
-
-# Clear all cached files (memory and disk)
-squeeze.clear_cache()
-```
 
 ### Minification options
 | Option | Default | Description |
