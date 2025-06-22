@@ -101,8 +101,10 @@ def minify(data: bytes, minification: Minification) -> tuple[bytes, Minification
 		msg = f"Unsupported minification: {minification}"
 		raise ValueError(msg)
 
+	ratio = len(data) / len(minified_data) if len(minified_data) > 0 else 1.0
+
 	return minified_data, MinificationInfo(
 		minification=minification,
 		duration=time.perf_counter() - t0,
-		ratio=len(data) / len(minified_data),
+		ratio=ratio,
 	)
