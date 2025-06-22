@@ -55,6 +55,14 @@ def content_length_correct(r: Response) -> bool:
 #### MARK: Tests
 
 
+def test_init_app_with_existing_app() -> None:
+	app = create_app()
+
+	from flask_squeeze import Squeeze
+
+	_squeeze = Squeeze(app)
+
+
 def test_get_index(client: FlaskClient, use_encoding: str) -> None:
 	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
