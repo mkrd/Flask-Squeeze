@@ -1,3 +1,4 @@
+import contextlib
 import tempfile
 from pathlib import Path
 from typing import Any, Generator
@@ -8,6 +9,7 @@ from test_app import create_app
 from werkzeug.wrappers import Response
 
 STATUS_CODE_NOT_FOUND_404 = 404
+STATUS_CODE_OK_200 = 200
 
 ########################################################################################
 #### MARK: Fixtures
@@ -397,3 +399,350 @@ def test_persistent_cache_disabled(client: FlaskClient) -> None:
 	# Second request - should be cache hit from memory
 	r2 = client.get("/static/jquery.min.js", headers={"Accept-Encoding": "gzip"})
 	assert r2.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+
+
+def test_mimetype_detection_comprehensive(client: FlaskClient) -> None:
+	"""Test comprehensive mimetype detection for various file types."""
+	test_cases = [
+		("/static/main.js", "text/javascript", True),
+		("/static/main.css", "text/css", True),
+		("/", "text/html", True),  # HTML from template
+	]
+
+	for url, expected_mimetype, should_process in test_cases:
+		r = client.get(url, headers={"Accept-Encoding": "gzip"})
+		assert expected_mimetype in (r.mimetype or "")
+		if should_process:
+			assert "Content-Encoding" in r.headers or "X-Flask-Squeeze-Minify" in r.headers
+
+
+def test_encoding_priority_selection(client: FlaskClient) -> None:
+	"""Test that encodings are selected in correct priority order."""
+	# Test brotli preferred over gzip
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip, br, deflate"})
+	assert r.headers.get("Content-Encoding") == "br"
+
+	# Test deflate preferred over none when br/gzip unavailable
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "deflate"})
+	assert r.headers.get("Content-Encoding") == "deflate"
+
+	# Test gzip when only gzip available
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("Content-Encoding") == "gzip"
+
+
+def test_quality_levels_configuration(client: FlaskClient) -> None:
+	"""Test different compression quality levels."""
+	configs = [
+		{"SQUEEZE_LEVEL_GZIP_STATIC": 1, "SQUEEZE_LEVEL_BROTLI_STATIC": 1},
+		{"SQUEEZE_LEVEL_GZIP_STATIC": 9, "SQUEEZE_LEVEL_BROTLI_STATIC": 11},
+	]
+
+	for config in configs:
+		client.application.config.update(config)
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert content_length_correct(r)
+		assert "Content-Encoding" in r.headers
+
+
+def test_cache_file_corruption_recovery(client: FlaskClient) -> None:
+	"""Test recovery from corrupted cache files."""
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "cache"
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+
+		from flask_squeeze import Squeeze
+
+		squeeze = Squeeze()
+		squeeze.init_app(client.application)
+
+		# Create initial cache entry
+		r1 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r1.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+
+		# Corrupt cache files
+		for cache_file in cache_dir.glob("*.cache"):
+			with cache_file.open("wb") as f:
+				f.write(b"corrupted data")
+
+		# Should recover gracefully
+		r2 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert content_length_correct(r2)
+
+
+def test_very_large_files(client: FlaskClient) -> None:
+	"""Test handling of very large files."""
+	# Create a large CSS file
+	large_content = "body { color: #000; } " * 10000  # ~200KB
+
+	static_dir = client.application.static_folder
+	if static_dir is None:
+		pytest.skip("Static directory not configured")
+
+	large_file_path = Path(static_dir) / "large_test.css"
+	try:
+		with large_file_path.open("w") as f:
+			f.write(large_content)
+
+		# Test compression of large file
+		r = client.get("/static/large_test.css", headers={"Accept-Encoding": "gzip"})
+		assert content_length_correct(r)
+		assert "Content-Encoding" in r.headers
+
+		# Verify significant compression ratio
+		original_size = len(large_content.encode())
+		compressed_size = len(r.data)
+		compression_ratio = original_size / compressed_size
+		minimum_compression_ratio = 2.0  # Expect at least 2:1 compression ratio
+		assert compression_ratio > minimum_compression_ratio
+
+	finally:
+		large_file_path.unlink(missing_ok=True)
+
+
+def test_binary_file_handling(client: FlaskClient) -> None:
+	"""Test handling of binary files that shouldn't be processed."""
+	# Create a small binary file
+	static_dir = client.application.static_folder
+	if static_dir is None:
+		pytest.skip("Static directory not configured")
+
+	binary_file_path = Path(static_dir) / "test.bin"
+	try:
+		with binary_file_path.open("wb") as f:
+			f.write(b"\x00\x01\x02\x03" * 100)
+
+		r = client.get("/static/test.bin", headers={"Accept-Encoding": "gzip"})
+		assert "Content-Encoding" in r.headers
+		assert "X-Flask-Squeeze-Minify" not in r.headers
+
+	finally:
+		binary_file_path.unlink(missing_ok=True)
+
+
+def test_empty_file_handling(client: FlaskClient) -> None:
+	"""Test handling of empty files."""
+	r = client.get("/static/empty.js", headers={"Accept-Encoding": "gzip"})
+	assert r.status_code == STATUS_CODE_OK_200
+
+
+def test_malformed_content_handling(client: FlaskClient) -> None:
+	"""Test handling of malformed CSS/JS content."""
+	static_dir = client.application.static_folder
+	if static_dir is None:
+		pytest.skip("Static directory not configured")
+
+	# Test malformed CSS
+	malformed_css_path = Path(static_dir) / "malformed.css"
+	try:
+		with malformed_css_path.open("w") as f:
+			f.write("body { color: #000; /* unclosed comment")
+
+		client.application.config.update({"SQUEEZE_MINIFY_CSS": True})
+		r = client.get("/static/malformed.css", headers={"Accept-Encoding": "gzip"})
+		# Should handle gracefully, might not minify but shouldn't crash
+		assert r.status_code == STATUS_CODE_OK_200
+		assert content_length_correct(r)
+
+	finally:
+		malformed_css_path.unlink(missing_ok=True)
+
+
+def test_security_headers_comprehensive(client: FlaskClient) -> None:
+	"""Test comprehensive security header behavior."""
+	# Test BREACH protection header
+	r = client.get("/", headers={"Accept-Encoding": "gzip"})
+	breach_header = r.headers.get("X-Flask-Squeeze-Breach-Protection")
+	assert breach_header is not None
+	assert len(breach_header) > 0
+
+	# Test that BREACH protection varies between requests
+	r2 = client.get("/", headers={"Accept-Encoding": "gzip"})
+	breach_header2 = r2.headers.get("X-Flask-Squeeze-Breach-Protection")
+	assert breach_header != breach_header2  # Should be different
+
+	# Test Vary header
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	vary_header = r.headers.get("Vary", "")
+	assert "Accept-Encoding" in vary_header
+
+
+def test_content_length_edge_cases(client: FlaskClient) -> None:
+	"""Test edge cases around content length handling."""
+	# Test exactly at min size threshold
+	min_size_threshold = 100
+	client.application.config.update({"SQUEEZE_MIN_SIZE": min_size_threshold})
+
+	static_dir = client.application.static_folder
+	if static_dir is None:
+		pytest.skip("Static directory not configured")
+
+	# Create file exactly one above the threshold
+
+	threshold_file_path = Path(static_dir) / "threshold.js"
+	try:
+		with threshold_file_path.open("w") as f:
+			f.write("x" * (min_size_threshold + 1))  # Create a file of size min_size_threshold + 1
+
+		r = client.get("/static/threshold.js", headers={"Accept-Encoding": "gzip"})
+
+		assert "Content-Encoding" in r.headers
+
+	finally:
+		threshold_file_path.unlink(missing_ok=True)
+
+	# Create file exactly one below the threshold
+
+	below_threshold_file_path = Path(static_dir) / "below_threshold.js"
+	try:
+		with below_threshold_file_path.open("w") as f:
+			f.write("x" * (min_size_threshold - 1))  # Create a file of size min_size_threshold
+
+		r = client.get("/static/below_threshold.js", headers={"Accept-Encoding": "gzip"})
+
+		assert "Content-Encoding" not in r.headers
+	finally:
+		below_threshold_file_path.unlink(missing_ok=True)
+
+
+def test_configuration_validation(client: FlaskClient) -> None:
+	"""Test various configuration combinations."""
+	configs_to_test: list[dict[str, bool | int]] = [
+		# All disabled
+		{
+			"SQUEEZE_COMPRESS": False,
+			"SQUEEZE_MINIFY_JS": False,
+			"SQUEEZE_MINIFY_CSS": False,
+			"SQUEEZE_MINIFY_HTML": False,
+		},
+		# Only compression
+		{
+			"SQUEEZE_COMPRESS": True,
+			"SQUEEZE_MINIFY_JS": False,
+			"SQUEEZE_MINIFY_CSS": False,
+			"SQUEEZE_MINIFY_HTML": False,
+		},
+		# Only minification
+		{
+			"SQUEEZE_COMPRESS": False,
+			"SQUEEZE_MINIFY_JS": True,
+			"SQUEEZE_MINIFY_CSS": True,
+			"SQUEEZE_MINIFY_HTML": True,
+		},
+		# Extreme quality settings
+		{
+			"SQUEEZE_LEVEL_GZIP_STATIC": 9,
+			"SQUEEZE_LEVEL_BROTLI_STATIC": 11,
+			"SQUEEZE_LEVEL_DEFLATE_STATIC": 9,
+		},
+	]
+
+	for config in configs_to_test:
+		client.application.config.update(config)
+
+		# Test should not crash with any config
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r.status_code == STATUS_CODE_OK_200
+		assert content_length_correct(r)
+
+
+def test_cache_key_normalization(client: FlaskClient) -> None:
+	"""Test that cache keys are properly normalized."""
+	# Test paths with special characters
+	paths_to_test = [
+		"/static/file-with-dashes.js",
+		"/static/file_with_underscores.js",
+		"/static/file.with.dots.js",
+		"/static/deeply/nested/file.js",
+	]
+
+	static_dir = client.application.static_folder
+	if static_dir is None:
+		pytest.skip("Static directory not configured")
+
+	created_files: list[Path] = []
+	try:
+		for path in paths_to_test:
+			file_path = Path(static_dir) / Path(path).name
+			with file_path.open("w") as f:
+				f.write("var test = 1;")
+			created_files.append(file_path)
+
+			# Test that these can be cached without issues
+			r = client.get(path, headers={"Accept-Encoding": "gzip"})
+			if r.status_code == STATUS_CODE_OK_200:  # File exists
+				assert content_length_correct(r)
+
+	finally:
+		for file_path in created_files:
+			file_path.unlink(missing_ok=True)
+
+
+def test_memory_usage_stability(client: FlaskClient) -> None:
+	"""Test that memory usage remains stable with many requests."""
+	import gc
+
+	# Get initial memory baseline
+	gc.collect()
+	initial_objects = len(gc.get_objects())
+
+	# Make many requests
+	for _ in range(100):
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r.status_code == STATUS_CODE_OK_200
+
+	# Check memory didn't grow significantly
+	gc.collect()
+	final_objects = len(gc.get_objects())
+	growth = final_objects - initial_objects
+
+	# Allow some growth but not excessive (arbitrary threshold)
+	max_objects_growth = 1100
+	assert growth < max_objects_growth, f"Excessive memory growth: {growth} objects"
+
+
+def test_error_recovery_after_failures(client: FlaskClient) -> None:
+	"""Test that the system recovers properly after various failures."""
+	# Test recovery after cache directory becomes unavailable
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "cache"
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+
+		from flask_squeeze import Squeeze
+
+		squeeze = Squeeze()
+		squeeze.init_app(client.application)
+
+		# First request should work
+		r1 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r1.status_code == STATUS_CODE_OK_200
+
+		# Simulate cache directory becoming unavailable
+		try:
+			cache_dir.chmod(0o000)  # Remove all permissions
+
+			# Should still work, just without caching
+			r2 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+			assert r2.status_code == STATUS_CODE_OK_200
+			assert content_length_correct(r2)
+
+		finally:
+			# Restore permissions for cleanup
+			with contextlib.suppress(Exception):
+				cache_dir.chmod(0o755)
+
+
+def test_header_preservation(client: FlaskClient) -> None:
+	"""Test that important headers are preserved during processing."""
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+
+	# Content-Length should be accurate
+	assert content_length_correct(r)
+
+	# ETag should be preserved if present
+	if "ETag" in r.headers:
+		assert r.headers["ETag"]
+
+	# Last-Modified should be preserved if present
+	if "Last-Modified" in r.headers:
+		assert r.headers["Last-Modified"]

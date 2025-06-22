@@ -46,9 +46,11 @@ def compress(
 		msg = f"Unsupported encoding: {encoding}"
 		raise ValueError(msg)
 
+	ratio = len(data) / len(compressed_data) if len(compressed_data) > 0 else 1.0
+
 	return compressed_data, CompressionInfo(
 		encoding=encoding,
 		quality=quality,
 		duration=time.perf_counter() - t0,
-		ratio=len(data) / len(compressed_data),
+		ratio=ratio,
 	)

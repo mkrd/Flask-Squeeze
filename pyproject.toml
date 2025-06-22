@@ -88,6 +88,9 @@ quote-style = "double"
 #### MARK: Testing
 
 [tool.coverage.report]
+omit = [
+	"tests/*",
+]
 exclude_also = [
 	"if TYPE_CHECKING:",
 ]
