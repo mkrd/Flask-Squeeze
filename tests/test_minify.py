@@ -1,6 +1,6 @@
 import pytest
 
-from flask_squeeze.minify import Minification, minify
+from flask_squeeze.minify import minify
 
 
 def test_minify_invalid_minification() -> None:

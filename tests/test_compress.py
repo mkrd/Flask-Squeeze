@@ -1,6 +1,6 @@
 import pytest
 
-from flask_squeeze.compress import Encoding, compress
+from flask_squeeze.compress import compress
 
 
 def test_compress_invalid_encoding() -> None:
