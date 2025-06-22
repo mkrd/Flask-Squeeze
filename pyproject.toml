@@ -22,6 +22,7 @@ requires-python = ">=3.8, <3.14"
 
 dependencies = [
 	"flask>=1",
+	"werkzeug>=0",
 	"brotli~=1.1",
 	"rjsmin~=1.2",
 	"rcssmin~=1.2",
