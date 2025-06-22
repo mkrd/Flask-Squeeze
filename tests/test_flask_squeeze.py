@@ -3,12 +3,14 @@ from __future__ import annotations
 import contextlib
 import tempfile
 from pathlib import Path
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
 
 import pytest
-from flask.testing import FlaskClient
 from test_app import create_app
-from werkzeug.wrappers import Response
+
+if TYPE_CHECKING:
+	from flask.testing import FlaskClient
+	from werkzeug.wrappers import Response
 
 STATUS_CODE_NOT_FOUND_404 = 404
 STATUS_CODE_OK_200 = 200
