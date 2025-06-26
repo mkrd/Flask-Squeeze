@@ -5,25 +5,43 @@
 ![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/master/assets/coverage.svg?raw=1)
 
 Flask-Squeeze is a Flask extension that automatically:
-- **Minifies** responses with the mimetypes javascript and css
-- **Compresses** all responses with brotli if the browser supports it, or gzip if the browser supports it!
-- **Protects** against the BREACH exploit
-- **Caches** static files so that they don't have to be re-compressed. By default, the cache is in-memory and will be cleared each time Flask restarts. With persistent caching enabled, compressed responses are saved to disk and survive server restarts.
-- **Persistent caching** (optional) saves compressed static files to disk, improving startup times and reducing CPU usage across server restarts
+- **Minifies** responses with JavaScript, CSS, and HTML content
+- **Compresses** all responses with brotli (preferred), gzip, or deflate compression based on browser support
+- **Protects** against the BREACH exploit by adding random padding to compressed responses
+- **Caches** static files so they don't need to be re-compressed, with both in-memory and persistent disk caching options
+- **Optimizes performance** with intelligent compression levels for static vs. dynamic content
+- **Works out-of-the-box** - no changes needed to your existing Flask routes or templates
 
 Files are considered static if the substring "/static/" is in their request path.
 
-## Compatibility
+
+Table of Contents
+----------------------------------------------------------------------------------------
+- [Compatibility](#compatibility)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Contributing](#contributing)
+
+
+Compatibility
+----------------------------------------------------------------------------------------
+
 - Tested with Python 3.8, 3.9, 3.10, 3.11, 3.12 and 3.13
 
-## Installation
+
+Installation
+----------------------------------------------------------------------------------------
+
 ```
 pip install Flask-Squeeze
 ```
 
-## Usage
-Initialize Flask-Squeeze **BEFORE** all other extensions and after_request handlers! Flask executes after_request handlers in reverse order of declaration, and the compression should be the last step before sending the response.
+
+Quick Start
+----------------------------------------------------------------------------------------
+
 ```python
+from flask import Flask
 from flask_squeeze import Squeeze
 squeeze = Squeeze()
 
@@ -42,46 +60,58 @@ def create_app():
 Thats it! The responses of your Flask app will now get minified and compressed, if the browser supports it.
 To control how Flask-Squeeze behaves, the following options exist:
 
-### General options
-You can configure Flask-Squeeze with the following options in your [Flask config](https://flask.palletsprojects.com/en/latest/config/):
 
+### Basic Options
 | Option | Default | Description |
 | --- | --- | --- |
-| `SQUEEZE_COMPRESS` | `True` | Enables or disables compression |
-| `SQUEEZE_MIN_SIZE` | `500` | Defines the minimum file size in bytes to activate the compression |
-| `SQUEEZE_CACHE_DIR` | `None` | Directory to store persistent cache files. If `None`, only in-memory caching is used |
-| `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable or disable verbose logging. If enabled, Flask-Squeeze will print what it does into the terminal in a highlighted color |
-| `SQUEEZE_CACHE_DIR` | `None` | Directory to store persistent cache files. If `None`, only in-memory caching is used |
+| `SQUEEZE_COMPRESS` | `True` | Enable/disable compression |
+| `SQUEEZE_MIN_SIZE` | `500` | Minimum file size (bytes) to compress |
+| `SQUEEZE_CACHE_DIR` | `None` | Directory for persistent cache (`None` = in-memory only) |
+| `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable debug output |
 
-### Persistent Caching
-Flask-Squeeze supports persistent caching of compressed static files.
-When enabled, compressed responses are saved to disk and reloaded on server restart, eliminating the need to recompress unchanged files.
+### Minification Options
+| Option | Default | Description |
+| --- | --- | --- |
+| `SQUEEZE_MINIFY_CSS` | `True` | Enable CSS minification |
+| `SQUEEZE_MINIFY_JS` | `True` | Enable JavaScript minification |
+| `SQUEEZE_MINIFY_HTML` | `True` | Enable HTML minification |
 
-If you want to enable persistent caching, set the `SQUEEZE_CACHE_DIR` option in your Flask app's configuration:
+### Compression Levels
+| Option | Default | Range | Description |
+| --- | --- | --- | --- |
+| `SQUEEZE_LEVEL_BROTLI_STATIC` | `11` | 0-11 | Brotli level for static files |
+| `SQUEEZE_LEVEL_BROTLI_DYNAMIC` | `1` | 0-11 | Brotli level for dynamic content |
+| `SQUEEZE_LEVEL_GZIP_STATIC` | `9` | 0-9 | Gzip level for static files |
+| `SQUEEZE_LEVEL_GZIP_DYNAMIC` | `1` | 0-9 | Gzip level for dynamic content |
+
+### Example Configuration
 ```python
-SQUEEZE_CACHE_DIR = './cache/flask_squeeze/'  # Enable persistent caching
+app.config.update({
+    'SQUEEZE_CACHE_DIR': './cache/flask_squeeze/',  # Enable persistent caching
+    'SQUEEZE_MIN_SIZE': 1000,  # Only compress files > 1KB
+    'SQUEEZE_VERBOSE_LOGGING': True,  # Debug mode
+})
 ```
-Benefits:
-- **Faster server startup**: No need to recompress static files on restart
-- **Reduced CPU usage**: Avoid redundant compression operations
-- **Consistent performance**: Immediate cache hits after restart
 
 
-### Minification options
-| Option | Default | Description |
-| --- | --- | --- |
-| `SQUEEZE_MINIFY_CSS` | `True` | Enable or disable css minification using rcssmin |
-| `SQUEEZE_MINIFY_JS` | `True` | Enable or disable js minification using rjsmin |
+Contributing
+----------------------------------------------------------------------------------------
 
-### Compression level options
-> Static files are cached, so they only have to be compressed once (and are persisted to disk if `SQUEEZE_CACHE_DIR` is configured).
-> Dynamic files like generated HTML files will not be cached, so they will be compressed for each response.
+1. **Report bugs** by opening an issue
+2. **Submit pull requests** with improvements
+3. **Improve documentation**
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `SQUEEZE_LEVEL_BROTLI_STATIC` | `default=11, min=0 , max=11` | Defines the compression level of brotli for static files |
-| `SQUEEZE_LEVEL_BROTLI_DYNAMIC` | `default=1, min=0, max=11` | Defines the compression level of brotli for dynamic files |
-| `SQUEEZE_LEVEL_DEFLATE_STATIC` | `default=9, min=-1 , max=9` | Defines the compression level of deflate for static files |
-| `SQUEEZE_LEVEL_DEFLATE_DYNAMIC` | `default=1, min=-1, max=9` |  Defines the compression level of deflate for dynamic files |
-| `SQUEEZE_LEVEL_GZIP_STATIC` | `default=9, min=0 , max=9` | Defines the compression level of gzip for static files |
-| `SQUEEZE_LEVEL_GZIP_DYNAMIC` | `default=1, min=0, max=9` |  Defines the compression level of gzip for dynamic files |
+### Development Setup
+```bash
+git clone https://github.com/mkrd/Flask-Squeeze.git
+cd Flask-Squeeze
+uv sync
+just test  # Run tests
+just run-test-app  # Run test app
+```
+
+
+License
+----------------------------------------------------------------------------------------
+
+MIT License - see [LICENSE](LICENSE) file for details.
