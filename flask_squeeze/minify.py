@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import rcssmin
 import rjsmin
+import minify_html as minifyhtml
 
 from .models import Minification
 
@@ -28,46 +29,14 @@ class MinificationInfo:
 
 def minify_html(html_bytes: bytes) -> bytes:
 	"""
-	Minifies HTML by removing white space and comments.
-	Additionally it uses minify_css and minify_js functions
-	to minify css in style tags and js in script tags
-	respectively.
+	Minifies HTML by using minify-html
 	"""
 
-	# TODO: Find robust way to minify
+	# Decode from utf-8
+	html_text = html_bytes.decode()
 
-	# html_text = html_bytes.decode("utf-8")
-
-	# minified: list[str] = []
-	# parser = etree.HTMLParser(recover=False)
-	# html_fragments: list[etree._Element] = etree.fromstring(html_text,
-	# 	parser=parser
-	# )
-
-	# for fragment in html_fragments:
-	# 	print("fragment", fragment)
-	# 	if isinstance(fragment, str):
-	# 		minified.append(fragment)
-	# 		continue
-
-	# 	for element in fragment.iter():
-	# 		print("element", element, element.tag)
-	# 		element: etree._Element = element
-	# 		if element.tag in ["pre", "code", "textarea"]:
-	# 			pass
-	# 		elif element.tag == "style" and element.text:
-	# 			element.text = minify_css(element.text)
-	# 		elif element.tag == "script" and element.text:
-	# 			element.text = minify_js(element.text)
-	# 		else:
-	# 			if element.text:
-	# 				element.text = element.text.strip()
-	# 			if element.tail:
-	# 				element.tail = element.tail.strip()
-	# 		element_bytes: bytes = etree.tostring(element, pretty_print=False)
-	# 		minified.append(element_bytes.decode("utf-8"))
-
-	# return "".join(minified)
+	# Minify using minify_html and re-encode back into bytes
+	html_bytes = minifyhtml.minify(html_text).encode()
 
 	return html_bytes
 
