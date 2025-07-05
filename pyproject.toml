@@ -67,6 +67,7 @@ ignore = [
 	"ERA001", # Found commented-out code
 	"FBT001", # Boolean-typed positional argument in function definition
 	"FIX002", # Line contains TODO, consider resolving the issue
+	"G004", # Logging statement uses f-string
 	"INP001", # File is part of an implicit namespace package. Add an `__init__.py`.
 	"PLC0415", # `import` should be at the top-level of a file
 	"S101", # Use of `assert` detected

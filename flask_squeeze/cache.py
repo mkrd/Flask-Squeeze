@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -7,6 +8,8 @@ if TYPE_CHECKING:
 	from pathlib import Path
 
 	from .models import Encoding
+
+logger = logging.getLogger(__name__)
 
 
 ########################################################################################
@@ -80,7 +83,9 @@ class Cache:
 		"""Initialize cache directory if specified."""
 		if self.cache_dir is not None:
 			self.cache_dir.mkdir(parents=True, exist_ok=True)
-			self.data.update(_read_cache_data_from_disk(self.cache_dir))
+			cached_entries = _read_cache_data_from_disk(self.cache_dir)
+			self.data.update(cached_entries)
+			logger.info(f"Loaded {len(cached_entries)} entries from disk cache")
 
 	def get(self, cache_key: CacheKey) -> CachedData | None:
 		"""Get the cached hash and data for a given cache key."""
@@ -99,3 +104,4 @@ class Cache:
 		# Save to disk if persistent caching is enabled
 		if self.cache_dir is not None:
 			_save_cache_entry_to_disk(self.cache_dir, cache_key, original_hash, data)
+			logger.debug(f"Cached entry saved to disk: {cache_key.normalized}")

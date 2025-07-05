@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
@@ -7,6 +8,8 @@ import rcssmin
 import rjsmin
 
 from .models import Minification
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,9 @@ def minify(data: bytes, minification: Minification) -> tuple[bytes, Minification
 	"""
 
 	t0 = time.perf_counter()
+	original_size = len(data)
+
+	logger.debug(f"Minifying {original_size} bytes of {minification.name} content")
 
 	if minification is Minification.html:
 		minified_data = minify_html(data)
@@ -99,12 +105,16 @@ def minify(data: bytes, minification: Minification) -> tuple[bytes, Minification
 		minified_data = minify_js(data)
 	else:
 		msg = f"Unsupported minification: {minification}"
+		logger.error(msg)
 		raise ValueError(msg)
 
 	ratio = len(data) / len(minified_data) if len(minified_data) > 0 else 1.0
+	duration = time.perf_counter() - t0
+
+	logger.debug(f"Minified {original_size} -> {len(minified_data)} bytes ({ratio:.1f}x) in {duration * 1000:.1f}ms")
 
 	return minified_data, MinificationInfo(
 		minification=minification,
-		duration=time.perf_counter() - t0,
+		duration=duration,
 		ratio=ratio,
 	)

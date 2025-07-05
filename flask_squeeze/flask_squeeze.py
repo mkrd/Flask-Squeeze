@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 
 from flask import Flask, Response, request
@@ -10,6 +11,8 @@ from .compress import CompressionInfo, compress
 from .minify import MinificationInfo, minify
 from .models import Encoding, Minification, ResourceType
 from .utils import add_breach_exploit_protection_header, update_response_headers
+
+logger = logging.getLogger(__name__)
 
 
 class Squeeze:
@@ -29,6 +32,9 @@ class Squeeze:
 	def init_app(self, app: Flask) -> None:
 		"""Initialize Flask-Squeeze with app"""
 		self.app = app
+
+		logger.info("Initializing Flask-Squeeze")
+
 		# Compression options
 		app.config.setdefault("SQUEEZE_COMPRESS", True)
 		app.config.setdefault("SQUEEZE_MIN_SIZE", 500)
@@ -45,8 +51,6 @@ class Squeeze:
 		app.config.setdefault("SQUEEZE_MINIFY_HTML", True)
 		# Caching options
 		app.config.setdefault("SQUEEZE_CACHE_DIR", None)
-		# Logging options
-		app.config.setdefault("SQUEEZE_VERBOSE_LOGGING", False)
 
 		# Initialize cache
 
@@ -55,6 +59,11 @@ class Squeeze:
 			data={},
 			cache_dir=Path(cache_dir) if cache_dir else None,
 		)
+
+		if cache_dir:
+			logger.info("Cache directory configured: %s", cache_dir)
+		else:
+			logger.debug("Using memory-only cache")
 
 		# Initialize after_request hook
 
@@ -65,6 +74,14 @@ class Squeeze:
 			or app.config["SQUEEZE_MINIFY_HTML"]
 		):
 			app.after_request(self.after_request)
+			features = []
+			if app.config["SQUEEZE_COMPRESS"]:
+				features.append("compression")
+			if any(
+				[app.config["SQUEEZE_MINIFY_JS"], app.config["SQUEEZE_MINIFY_CSS"], app.config["SQUEEZE_MINIFY_HTML"]]
+			):
+				features.append("minification")
+			logger.info(f"Flask-Squeeze enabled with: {', '.join(features)}")
 
 	####################################################################################
 	#### MARK: Utils
@@ -94,6 +111,8 @@ class Squeeze:
 	) -> None:
 		assert encode_choice or minify_choice
 
+		logger.debug(f"Processing dynamic content - encoding: {encode_choice}, minification: {minify_choice}")
+
 		data, minification_info, compression_info = self.squeeze(
 			response.get_data(as_text=False),
 			ResourceType.dynamic,
@@ -106,9 +125,15 @@ class Squeeze:
 		if minification_info:
 			response.headers.update(minification_info.headers)
 
+			logger.debug(
+				f"Minified {minification_info.minification.name} content ({minification_info.ratio:.1f}x reduction)"
+			)
+
 		if compression_info:
 			response.headers.update(compression_info.headers)
 			add_breach_exploit_protection_header(response)
+
+			logger.debug(f"Compressed with {compression_info.encoding.name} ({compression_info.ratio:.1f}x reduction)")
 
 	####################################################################################
 	#### MARK: Static
@@ -135,9 +160,12 @@ class Squeeze:
 		if cached is not None and data_hash == cached.original_hash:
 			response.set_data(cached.data)
 			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
+			logger.debug(f"Cache hit for {request.path}")
 			return
 
 		# Not in cache, compress and minify
+
+		logger.debug(f"Cache miss for {request.path} - processing static content")
 
 		data, minification_info, compression_info = self.squeeze(
 			data,
@@ -190,12 +218,17 @@ class Squeeze:
 			return response
 
 		if response.status_code not in range(200, 300):
+			logger.debug(f"Skipping non-2xx response: {response.status_code}")
 			return response
 
 		if response.content_length < self.app.config["SQUEEZE_MIN_SIZE"]:
+			logger.debug(
+				f"Skipping small response ({response.content_length} bytes < {self.app.config['SQUEEZE_MIN_SIZE']} bytes threshold)"
+			)
 			return response
 
 		if "Content-Encoding" in response.headers:
+			logger.debug("Skipping already encoded response")
 			return response
 
 		# Assert: The response is ok, the size is above threshold, and the response is
@@ -212,6 +245,7 @@ class Squeeze:
 		)
 
 		if encode_choice is None and minify_choice is None:
+			logger.debug("No compression or minification chosen")
 			return response
 
 		# At least one of minify or compress is requested

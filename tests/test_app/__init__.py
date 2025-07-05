@@ -13,7 +13,6 @@ def create_app(update_config: dict | None = None) -> Flask:
 		"DEBUG": True,
 		"SECRET_KEY": "dev",
 		"SQUEEZE_MIN_SIZE": 0,
-		"SQUEEZE_VERBOSE_LOGGING": True,
 	}
 	if update_config:
 		config.update(update_config)

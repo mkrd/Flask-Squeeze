@@ -67,7 +67,6 @@ To control how Flask-Squeeze behaves, the following options exist:
 | `SQUEEZE_COMPRESS` | `True` | Enable/disable compression |
 | `SQUEEZE_MIN_SIZE` | `500` | Minimum file size (bytes) to compress |
 | `SQUEEZE_CACHE_DIR` | `None` | Directory for persistent cache (`None` = in-memory only) |
-| `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable debug output |
 
 ### Minification Options
 | Option | Default | Description |
@@ -89,7 +88,6 @@ To control how Flask-Squeeze behaves, the following options exist:
 app.config.update({
     'SQUEEZE_CACHE_DIR': './cache/flask_squeeze/',  # Enable persistent caching
     'SQUEEZE_MIN_SIZE': 1000,  # Only compress files > 1KB
-    'SQUEEZE_VERBOSE_LOGGING': True,  # Debug mode
 })
 ```
 
