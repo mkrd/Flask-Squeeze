@@ -7,7 +7,6 @@ from flask import Flask, Response, request
 
 from .cache import Cache, CacheKey
 from .compress import CompressionInfo, compress
-from .log import d_log, log
 from .minify import MinificationInfo, minify
 from .models import Encoding, Minification, ResourceType
 from .utils import add_breach_exploit_protection_header, update_response_headers
@@ -134,14 +133,12 @@ class Squeeze:
 		cached = self.cache_static.get(cache_key)
 
 		if cached is not None and data_hash == cached.original_hash:
-			log(2, "Found in cache, hashes match. RETURN")
 			response.set_data(cached.data)
 			response.headers["X-Flask-Squeeze-Cache"] = "HIT"
 			return
 
 		# Not in cache, compress and minify
 
-		log(2, "Not in cache or hashes don't match. Squeeze and cache.")
 		data, minification_info, compression_info = self.squeeze(
 			data,
 			ResourceType.static,
@@ -188,24 +185,17 @@ class Squeeze:
 	####################################################################################
 	#### MARK: After Request
 
-	@d_log(level=0, with_args=[1])
 	def after_request(self, response: Response) -> Response:
-		log(1, f"Enter after_request({response})")
-
 		if response.status_code is None or response.content_length is None:
-			log(1, "Response status code or content length is None. RETURN")
 			return response
 
 		if response.status_code not in range(200, 300):
-			log(1, "Response status code is not ok. RETURN")
 			return response
 
 		if response.content_length < self.app.config["SQUEEZE_MIN_SIZE"]:
-			log(1, "Response size is smaller than the defined minimum. RETURN")
 			return response
 
 		if "Content-Encoding" in response.headers:
-			log(1, "Response already encoded. RETURN")
 			return response
 
 		# Assert: The response is ok, the size is above threshold, and the response is
@@ -222,7 +212,6 @@ class Squeeze:
 		)
 
 		if encode_choice is None and minify_choice is None:
-			log(1, "No compression or minification requested. RETURN")
 			return response
 
 		# At least one of minify or compress is requested
@@ -236,5 +225,4 @@ class Squeeze:
 
 		update_response_headers(response, encode_choice)
 
-		log(1, f"Static cache: {self.cache_static.data.keys()}")
 		return response
