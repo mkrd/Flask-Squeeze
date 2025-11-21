@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import cast
 
 from flask import Flask, Response, request
 
 from .cache import Cache, CacheKey
 from .compress import CompressionInfo, compress
-from .log import d_log, log
+from .log import log
 from .minify import MinificationInfo, minify
 from .models import Encoding, Minification, ResourceType
 from .utils import add_breach_exploit_protection_header, update_response_headers
@@ -82,7 +83,7 @@ class Squeeze:
 
 		option = options[(encode_choice, resource_type)]
 
-		return self.app.config[option]
+		return cast("int", self.app.config[option])
 
 	####################################################################################
 	#### MARK: Dynamic
@@ -188,7 +189,6 @@ class Squeeze:
 	####################################################################################
 	#### MARK: After Request
 
-	@d_log(level=0, with_args=[1])
 	def after_request(self, response: Response) -> Response:
 		log(1, f"Enter after_request({response})")
 

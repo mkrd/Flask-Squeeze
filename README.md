@@ -26,7 +26,7 @@ Table of Contents
 Compatibility
 ----------------------------------------------------------------------------------------
 
-- Tested with Python 3.8, 3.9, 3.10, 3.11, 3.12 and 3.13
+- Works with Python 3.9 to 3.14
 
 
 Installation

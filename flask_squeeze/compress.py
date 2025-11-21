@@ -18,11 +18,11 @@ class CompressionInfo:
 	ratio: float
 
 	@property
-	def headers(self) -> dict:
+	def headers(self) -> dict[str, str]:
 		value = "; ".join(
 			[
 				f"ratio={self.ratio:.1f}x",
-				f"qualtiy={self.quality}",
+				f"quality={self.quality}",
 				f"duration={self.duration * 1000:.1f}ms",
 			],
 		)
