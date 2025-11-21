@@ -29,17 +29,17 @@ def client() -> Generator[FlaskClient, Any, None]:
 
 @pytest.fixture(params=["", "gzip", "br", "deflate"])
 def use_encoding(request: pytest.FixtureRequest) -> str:
-	return request.param
+	return str(request.param)
 
 
 @pytest.fixture(params=[False, True])
 def use_minify_js(request: pytest.FixtureRequest) -> bool:
-	return request.param
+	return bool(request.param)
 
 
 @pytest.fixture(params=[False, True])
 def use_minify_css(request: pytest.FixtureRequest) -> bool:
-	return request.param
+	return bool(request.param)
 
 
 ########################################################################################

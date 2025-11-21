@@ -14,11 +14,20 @@ run-test-app:
     cd tests && uv run flask --app "test_app:create_app()" run --host=localhost --port=5002 --debug --reload
 
 
-alias t := test
+ruff:
+    uv run ruff check
 
-# Run tests
+alias m := mypy
+mypy:
+    uv run mypy .
+
+alias t := test
 test:
 	uv run pytest -p no:cacheprovider --capture=no --cov-report=term-missing --cov=flask_squeeze tests
+
+
+alias c := check
+check: ruff mypy test
 
 
 publish:
@@ -26,4 +35,3 @@ publish:
     uv publish
     rm -rf dist
     rm -rf flask_squeeze.egg-info
-

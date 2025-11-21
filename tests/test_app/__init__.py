@@ -5,7 +5,7 @@ from flask import Flask
 from flask_squeeze import Squeeze
 
 
-def create_app(update_config: dict | None = None) -> Flask:
+def create_app(update_config: dict[str, str] | None = None) -> Flask:
 	squeeze = Squeeze()
 	app = Flask(__name__, instance_relative_config=True)
 	config = {

@@ -1,1 +1,3 @@
-from .flask_squeeze import Squeeze  # noqa: F401
+from .flask_squeeze import Squeeze
+
+__all__ = ["Squeeze"]

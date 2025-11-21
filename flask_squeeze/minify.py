@@ -16,7 +16,7 @@ class MinificationInfo:
 	ratio: float
 
 	@property
-	def headers(self) -> dict:
+	def headers(self) -> dict[str, str]:
 		value = "; ".join(
 			[
 				f"ratio={self.ratio:.1f}x",

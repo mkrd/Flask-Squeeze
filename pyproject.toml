@@ -1,6 +1,6 @@
 [project]
 name = "flask-squeeze"
-version = "3.4.0"
+version = "3.5.0"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
 authors = [{ name = "Marcel Kröker", email = "kroeker.marcel@gmail.com" }]
@@ -13,7 +13,7 @@ classifiers=[
 	"Programming Language :: Python",
 	"Topic :: Software Development :: Libraries :: Python Modules"
 ]
-requires-python = ">=3.8, <3.14"
+requires-python = ">=3.8, <3.15"
 
 
 ########################################################################################
@@ -54,9 +54,8 @@ package = true
 
 
 [tool.ruff]
-show-fixes = true
+cache-dir = ".cache/ruff"
 line-length = 120
-
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -79,7 +78,6 @@ ignore = [
 	"W191", # indentation contains tabs
 ]
 
-
 [tool.ruff.format]
 indent-style = "tab"
 quote-style = "double"
@@ -88,17 +86,17 @@ quote-style = "double"
 ########################################################################################
 #### MARK: Testing
 
+
 [tool.coverage.report]
-omit = [
-	"tests/*",
-]
-exclude_also = [
-	"if TYPE_CHECKING:",
-]
+omit = ["tests/*"]
+exclude_also = ["if TYPE_CHECKING:"]
 
 
 ########################################################################################
 #### MARK: Mypy
 
+
 [tool.mypy]
 ignore_missing_imports = true
+cache_dir = ".cache/mypy"
+strict = true
