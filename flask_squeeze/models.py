@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 	from flask import Config
@@ -23,7 +23,7 @@ class Encoding(Enum):
 		cls,
 		headers: Headers,
 		config: Config,
-	) -> Union[Encoding, None]:
+	) -> Encoding | None:
 		"""
 		If the client supports brotli, gzip, or deflate, return the best encoding.
 		If the client does not accept any of these encodings, or if the config
@@ -49,9 +49,9 @@ class Minification(Enum):
 	@classmethod
 	def get_from_mimetype_and_config(
 		cls,
-		mimetype: Union[str, None],
+		mimetype: str | None,
 		config: Config,
-	) -> Union[Minification, None]:
+	) -> Minification | None:
 		"""
 		Based on the response mimetype:
 		- `js` or `json`, and `SQUEEZE_MINIFY_JS=True`: return `Minification.js`

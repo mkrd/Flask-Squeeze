@@ -3,12 +3,14 @@ from __future__ import annotations
 import contextlib
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from test_app import create_app
 
 if TYPE_CHECKING:
+	from collections.abc import Generator
+
 	from flask.testing import FlaskClient
 	from werkzeug.wrappers import Response
 
