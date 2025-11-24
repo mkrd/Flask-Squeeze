@@ -1,6 +1,6 @@
 [project]
 name = "flask-squeeze"
-version = "3.5.0"
+version = "3.5.1"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
 authors = [{ name = "Marcel Kröker", email = "kroeker.marcel@gmail.com" }]
@@ -27,7 +27,6 @@ dependencies = [
 	"rcssmin~=1.2",
 ]
 
-
 [dependency-groups]
 dev = [
 	"mypy>=1.14.1",
@@ -44,7 +43,6 @@ dev = [
 packages = ["flask_squeeze"]
 license-files = [] # Workaround for https://github.com/astral-sh/uv/issues/9513
 
-
 [tool.uv]
 package = true
 
@@ -55,6 +53,7 @@ package = true
 
 [tool.ruff]
 cache-dir = ".cache/ruff"
+target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
@@ -72,9 +71,6 @@ ignore = [
 	"T201", # `print` found
 	"TD002", # Missing author in TODO; try: `# TODO(<author_name>): ...`
 	"TD003", # Missing issue link on the line following this TODO
-	"UP006", # use Dict (not possible in python 3.8)
-	"UP007", # use X | Y for union (not possible in python 3.8)
-	"UP035", # use typing Dict and List (not possible in python 3.8)
 	"W191", # indentation contains tabs
 ]
 
@@ -97,6 +93,7 @@ exclude_also = ["if TYPE_CHECKING:"]
 
 
 [tool.mypy]
-ignore_missing_imports = true
 cache_dir = ".cache/mypy"
+python_version = "3.9"
+ignore_missing_imports = true # brotli, rjsmin and rcssmin are missing type stubs
 strict = true
