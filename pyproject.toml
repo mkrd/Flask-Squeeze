@@ -27,7 +27,6 @@ dependencies = [
 	"rcssmin~=1.2",
 ]
 
-
 [dependency-groups]
 dev = [
 	"mypy>=1.14.1",
@@ -43,7 +42,6 @@ dev = [
 [tool.setuptools]
 packages = ["flask_squeeze"]
 license-files = [] # Workaround for https://github.com/astral-sh/uv/issues/9513
-
 
 [tool.uv]
 package = true
