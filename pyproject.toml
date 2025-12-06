@@ -29,8 +29,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-	"mypy>=1.14.1",
-	"pytest-cov ~= 5.0.0",
+	"mypy ~= 1.19.0",
+	"pytest == 8.4.1", # 8.4.2 uses match statement (incompatible with python 3.9)
+	"pytest-cov ~= 7.0.0",
 	"ruff>=0.9.3",
 ]
 
