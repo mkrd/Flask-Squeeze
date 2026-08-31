@@ -1,6 +1,6 @@
 [project]
 name = "flask-squeeze"
-version = "3.6.0"
+version = "3.6.1"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
 authors = [{ name = "Marcel Kröker", email = "kroeker.marcel@gmail.com" }]
@@ -30,9 +30,9 @@ dependencies = [
 [dependency-groups]
 dev = [
 	"mypy ~= 1.19.0",
-	"pytest == 8.4.2",
+	"pytest ~= 8.4.0",
 	"pytest-cov ~= 7.1.0",
-	"ruff>=0.9.3",
+	"ruff ~= 0.16.0",
 ]
 
 
@@ -40,9 +40,13 @@ dev = [
 #### MARK: Packaging
 
 
-[tool.setuptools]
-packages = ["flask_squeeze"]
-license-files = [] # Workaround for https://github.com/astral-sh/uv/issues/9513
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "flask_squeeze"
+module-root = ""
 
 [tool.uv]
 package = true

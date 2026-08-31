@@ -221,7 +221,7 @@ wheels = [
 
 [[package]]
 name = "flask-squeeze"
-version = "3.6.0"
+version = "3.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "brotli" },
@@ -249,9 +249,9 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = "~=1.19.0" },
-    { name = "pytest", specifier = "==8.4.2" },
+    { name = "pytest", specifier = "~=8.4.0" },
     { name = "pytest-cov", specifier = "~=7.1.0" },
-    { name = "ruff", specifier = ">=0.9.3" },
+    { name = "ruff", specifier = "~=0.16.0" },
 ]
 
 [[package]]
