@@ -61,6 +61,7 @@ line-length = 120
 select = ["ALL"]
 ignore = [
 	"ANN202", # Missing return type annotation for private function
+	"CPY", # Copyright notice missing
 	"D", # docstrings
 	"E501", # line length
 	"ERA001", # Found commented-out code
