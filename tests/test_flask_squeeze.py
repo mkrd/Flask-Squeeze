@@ -435,6 +435,69 @@ def test_persistent_cache_disabled(client: FlaskClient) -> None:
 	assert r2.headers.get("X-Flask-Squeeze-Cache") == "HIT"
 
 
+def test_persistent_cache_prunes_stale_variants(client: FlaskClient) -> None:
+	"""Changing minify config must not leave stale cache files behind."""
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "flask_squeeze_cache"
+
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+		client.application.config.update({"SQUEEZE_MINIFY_JS": True})
+
+		from flask_squeeze import Squeeze
+
+		squeeze = Squeeze()
+		squeeze.init_app(client.application)
+
+		# Minify on: one cache file
+		r1 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r1.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		assert len(list(cache_dir.glob("*.cache"))) == 1
+
+		# Minify off: new variant written, stale variant pruned, still one file
+		client.application.config.update({"SQUEEZE_MINIFY_JS": False})
+		r2 = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r2.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		assert len(list(cache_dir.glob("*.cache"))) == 1
+		assert len(list(cache_dir.glob("*.meta"))) == 1
+
+		# A different encoding is a separate entry and coexists
+		encodings = ["gzip", "br"]
+		r3 = client.get("/static/jquery.js", headers={"Accept-Encoding": "br"})
+		assert r3.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		assert len(list(cache_dir.glob("*.cache"))) == len(encodings)
+
+
+def test_persistent_cache_prunes_on_set(client: FlaskClient) -> None:
+	"""Leftover variants on disk are pruned the next time the path is saved."""
+	with tempfile.TemporaryDirectory() as temp_dir:
+		cache_dir = Path(temp_dir) / "flask_squeeze_cache"
+
+		# Simulate a previous run with different config that left a stale variant behind
+		from flask_squeeze.cache import CacheKey
+		from flask_squeeze.models import Encoding
+
+		cache_dir.mkdir(parents=True, exist_ok=True)
+		stale_key = CacheKey("/static/jquery.js", Encoding.gzip, None, 9)
+		with (cache_dir / f"{stale_key.normalized}.meta").open("w") as f:
+			f.write("stale")
+		with (cache_dir / f"{stale_key.normalized}.cache").open("wb") as f:
+			f.write(b"stale")
+		assert len(list(cache_dir.glob("*.cache"))) == 1
+
+		# A fresh app re-saving the path replaces the stale variant
+		client.application.config.update({"SQUEEZE_CACHE_DIR": str(cache_dir)})
+		client.application.config.update({"SQUEEZE_MINIFY_JS": True})
+
+		from flask_squeeze import Squeeze
+
+		squeeze = Squeeze()
+		squeeze.init_app(client.application)
+		r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+		assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+		assert len(list(cache_dir.glob("*.cache"))) == 1
+		assert len(list(cache_dir.glob("*.meta"))) == 1
+
+
 def test_mimetype_detection_comprehensive(client: FlaskClient) -> None:
 	"""Test comprehensive mimetype detection for various file types."""
 	test_cases = [

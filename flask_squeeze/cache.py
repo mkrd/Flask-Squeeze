@@ -50,6 +50,11 @@ def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
 #### MARK: Cache
 
 
+def _variant_group(normalized: str) -> str:
+	"""Return the "{flat_path}.{encoding}" prefix shared by all variants of one (path, encoding)."""
+	return ".".join(normalized.split(".")[:-2])
+
+
 @dataclass(frozen=True)
 class CacheKey:
 	path: str
@@ -58,12 +63,15 @@ class CacheKey:
 	quality: int | None
 
 	@property
+	def flat_path(self) -> str:
+		return self.path.replace("/", "_")
+
+	@property
 	def normalized(self) -> str:
-		flat_path = self.path.replace("/", "_")
 		encoding = self.encoding.value if self.encoding else "none"
 		minification = self.minification.value if self.minification else "none"
 		quality = str(self.quality) if self.quality is not None else "none"
-		return f"{flat_path}.{encoding}.{minification}.{quality}"
+		return f"{self.flat_path}.{encoding}.{minification}.{quality}"
 
 
 @dataclass(frozen=True)
@@ -96,10 +104,25 @@ class Cache:
 		return CachedData(original_hash, data)
 
 	def set(self, cache_key: CacheKey, original_hash: str, data: bytes) -> None:
-		"""Set the cached data for a given cache key."""
+		"""Set the cached data, removing any other variant of the same (path, encoding)."""
 
-		self.data[cache_key.normalized] = (original_hash, data)
+		new_key = cache_key.normalized
+
+		for key in [
+			k for k in self.data
+			if _variant_group(k) == _variant_group(new_key)
+		]:
+			self._remove(key)
+
+		self.data[new_key] = (original_hash, data)
 
 		# Save to disk if persistent caching is enabled
 		if self.cache_dir is not None:
 			_save_cache_entry_to_disk(self.cache_dir, cache_key, original_hash, data)
+
+	def _remove(self, key: str) -> None:
+		"""Remove an entry from memory and disk."""
+		self.data.pop(key, None)
+		if self.cache_dir is not None:
+			for suffix in (".meta", ".cache"):
+				(self.cache_dir / f"{key}{suffix}").unlink(missing_ok=True)
