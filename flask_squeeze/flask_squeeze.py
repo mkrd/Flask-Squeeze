@@ -131,7 +131,12 @@ class Squeeze:
 		data = response.get_data(as_text=False)
 		data_hash = hashlib.sha256(data).hexdigest()
 
-		cache_key = CacheKey(request.path, encode_choice)
+		quality = (
+			self.get_configured_quality(encode_choice, ResourceType.static)
+			if encode_choice is not None
+			else None
+		)
+		cache_key = CacheKey(request.path, encode_choice, minify_choice, quality)
 		cached = self.cache_static.get(cache_key)
 
 		if cached is not None and data_hash == cached.original_hash:

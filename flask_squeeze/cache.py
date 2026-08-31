@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from pathlib import Path
 
-	from .models import Encoding
+	from .models import Encoding, Minification
 
 
 ########################################################################################
@@ -54,12 +54,16 @@ def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
 class CacheKey:
 	path: str
 	encoding: Encoding | None
+	minification: Minification | None
+	quality: int | None
 
 	@property
 	def normalized(self) -> str:
 		flat_path = self.path.replace("/", "_")
 		encoding = self.encoding.value if self.encoding else "none"
-		return f"{flat_path}.{encoding}"
+		minification = self.minification.value if self.minification else "none"
+		quality = str(self.quality) if self.quality is not None else "none"
+		return f"{flat_path}.{encoding}.{minification}.{quality}"
 
 
 @dataclass(frozen=True)

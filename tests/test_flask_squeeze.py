@@ -324,6 +324,26 @@ def test_cache_invalidation_on_compression_disable(client: FlaskClient) -> None:
 	assert "Content-Encoding" not in r.headers
 
 
+def test_cache_invalidation_on_minify_disable(client: FlaskClient) -> None:
+	# Enable minification and fetch the file
+	client.application.config.update({"SQUEEZE_MINIFY_JS": True})
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+	assert "X-Flask-Squeeze-Minify" in r.headers
+
+	# Fetch again to ensure it is cached
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "HIT"
+
+	# Disable minification
+	client.application.config.update({"SQUEEZE_MINIFY_JS": False})
+
+	# Fetch again, cache should be invalidated
+	r = client.get("/static/jquery.js", headers={"Accept-Encoding": "gzip"})
+	assert r.headers.get("X-Flask-Squeeze-Cache") == "MISS"
+	assert "X-Flask-Squeeze-Minify" not in r.headers
+
+
 def test_small_response_below_min_size(client: FlaskClient) -> None:
 	min_size = 1000
 	client.application.config.update({"SQUEEZE_MIN_SIZE": min_size})
