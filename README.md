@@ -43,18 +43,20 @@ Quick Start
 ```python
 from flask import Flask
 from flask_squeeze import Squeeze
+
 squeeze = Squeeze()
 
+
 def create_app():
-    app = Flask(__name__)
+	app = Flask(__name__)
 
-    # Init Flask-Squeeze
-    squeeze.init_app(app)
+	# Init Flask-Squeeze
+	squeeze.init_app(app)
 
-    # Init all other extensions
-    # AFTER Flask-Squeeze
+	# Init all other extensions
+	# AFTER Flask-Squeeze
 
-    return app
+	return app
 ```
 
 Thats it! The responses of your Flask app will now get minified and compressed, if the browser supports it.
@@ -86,11 +88,13 @@ To control how Flask-Squeeze behaves, the following options exist:
 
 ### Example Configuration
 ```python
-app.config.update({
-    'SQUEEZE_CACHE_DIR': './cache/flask_squeeze/',  # Enable persistent caching
-    'SQUEEZE_MIN_SIZE': 1000,  # Only compress files > 1KB
-    'SQUEEZE_VERBOSE_LOGGING': True,  # Debug mode
-})
+app.config.update(
+	{
+		"SQUEEZE_CACHE_DIR": "./cache/flask_squeeze/",  # Enable persistent caching
+		"SQUEEZE_MIN_SIZE": 1000,  # Only compress files > 1KB
+		"SQUEEZE_VERBOSE_LOGGING": True,  # Debug mode
+	}
+)
 ```
 
 
