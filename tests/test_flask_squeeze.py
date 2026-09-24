@@ -79,10 +79,10 @@ def test_get_index(client: FlaskClient, use_encoding: str) -> None:
 	assert use_encoding == encoding
 
 	sizes = {
-		"": 3_932_146,
-		"br": 8_164,
-		"deflate": 83_554,
-		"gzip": 83_566,
+		"": 3_931_872,
+		"br": 7_244,
+		"deflate": 72_039,
+		"gzip": 72_052,
 	}
 
 	assert almost_equal(length, sizes[use_encoding])
@@ -100,7 +100,7 @@ def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bo
 	assert use_encoding == encoding
 
 	sizes = {
-		("", True): 1_377_522,
+		("", True): 1_346_574,
 		("br", True): 117_261,
 		("deflate", True): 157_184,
 		("gzip", True): 157_196,

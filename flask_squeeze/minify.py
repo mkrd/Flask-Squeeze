@@ -3,8 +3,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-import rcssmin
-import rjsmin
+from turbohtml import Minify
+from turbohtml.clean import CSSMinify, JSMinify
+from turbohtml.clean import minify as minify_document
+from turbohtml.clean import minify_css as minify_stylesheet
+from turbohtml.clean import minify_js as minify_javascript
 
 from .models import Minification
 
@@ -27,61 +30,17 @@ class MinificationInfo:
 
 
 def minify_html(html_bytes: bytes) -> bytes:
-	"""
-	Minifies HTML by removing white space and comments.
-	Additionally it uses minify_css and minify_js functions
-	to minify css in style tags and js in script tags
-	respectively.
-	"""
-
-	# TODO: Find robust way to minify
-
-	# html_text = html_bytes.decode("utf-8")
-
-	# minified: list[str] = []
-	# parser = etree.HTMLParser(recover=False)
-	# html_fragments: list[etree._Element] = etree.fromstring(html_text,
-	# 	parser=parser
-	# )
-
-	# for fragment in html_fragments:
-	# 	print("fragment", fragment)
-	# 	if isinstance(fragment, str):
-	# 		minified.append(fragment)
-	# 		continue
-
-	# 	for element in fragment.iter():
-	# 		print("element", element, element.tag)
-	# 		element: etree._Element = element
-	# 		if element.tag in ["pre", "code", "textarea"]:
-	# 			pass
-	# 		elif element.tag == "style" and element.text:
-	# 			element.text = minify_css(element.text)
-	# 		elif element.tag == "script" and element.text:
-	# 			element.text = minify_js(element.text)
-	# 		else:
-	# 			if element.text:
-	# 				element.text = element.text.strip()
-	# 			if element.tail:
-	# 				element.tail = element.tail.strip()
-	# 		element_bytes: bytes = etree.tostring(element, pretty_print=False)
-	# 		minified.append(element_bytes.decode("utf-8"))
-
-	# return "".join(minified)
-
-	return html_bytes
+	options = Minify(minify_css=CSSMinify(), minify_js=JSMinify(mangle=False, fold=False))
+	return minify_document(html_bytes.decode("utf-8"), options).encode("utf-8")
 
 
 def minify_css(data: bytes) -> bytes:
-	minified = rcssmin.cssmin(data)
-	assert isinstance(minified, bytes)
-	return minified
+	return minify_stylesheet(data.decode("utf-8")).encode("utf-8")
 
 
 def minify_js(data: bytes) -> bytes:
-	minified = rjsmin.jsmin(data)
-	assert isinstance(minified, bytes)
-	return minified
+	minified = minify_javascript(data.decode("utf-8"), JSMinify(mangle=False, fold=False), on_error="passthrough")
+	return minified.encode("utf-8")
 
 
 def minify(data: bytes, minification: Minification) -> tuple[bytes, MinificationInfo]:

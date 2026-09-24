@@ -1,17 +1,17 @@
 [project]
 name = "flask-squeeze"
-version = "3.7.0"
+version = "4.0.0"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
 authors = [{ name = "Marcel Kröker", email = "kroeker.marcel@gmail.com" }]
 license = { file = "LICENSE" }
-classifiers=[
+classifiers = [
 	"Programming Language :: Python :: 3",
 	"License :: OSI Approved :: MIT License",
 	"Operating System :: OS Independent",
 	"Intended Audience :: Developers",
 	"Programming Language :: Python",
-	"Topic :: Software Development :: Libraries :: Python Modules"
+	"Topic :: Software Development :: Libraries :: Python Modules",
 ]
 requires-python = ">=3.10, <3.15"
 
@@ -20,12 +20,7 @@ requires-python = ">=3.10, <3.15"
 #### MARK: Dependencies
 
 
-dependencies = [
-	"flask>=1",
-	"brotli~=1.1",
-	"rjsmin~=1.2",
-	"rcssmin~=1.2",
-]
+dependencies = ["flask>=1", "brotli~=1.1", "turbohtml~=1.9.0"]
 
 [dependency-groups]
 dev = [
@@ -64,20 +59,20 @@ line-length = 120
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-	"ANN202", # Missing return type annotation for private function
-	"CPY", # Copyright notice missing
-	"D", # docstrings
-	"E501", # line length
-	"ERA001", # Found commented-out code
-	"FBT001", # Boolean-typed positional argument in function definition
-	"FIX002", # Line contains TODO, consider resolving the issue
-	"INP001", # File is part of an implicit namespace package. Add an `__init__.py`.
+	"ANN202",  # Missing return type annotation for private function
+	"CPY",     # Copyright notice missing
+	"D",       # docstrings
+	"E501",    # line length
+	"ERA001",  # Found commented-out code
+	"FBT001",  # Boolean-typed positional argument in function definition
+	"FIX002",  # Line contains TODO, consider resolving the issue
+	"INP001",  # File is part of an implicit namespace package. Add an `__init__.py`.
 	"PLC0415", # `import` should be at the top-level of a file
-	"S101", # Use of `assert` detected
-	"T201", # `print` found
-	"TD002", # Missing author in TODO; try: `# TODO(<author_name>): ...`
-	"TD003", # Missing issue link on the line following this TODO
-	"W191", # indentation contains tabs
+	"S101",    # Use of `assert` detected
+	"T201",    # `print` found
+	"TD002",   # Missing author in TODO; try: `# TODO(<author_name>): ...`
+	"TD003",   # Missing issue link on the line following this TODO
+	"W191",    # indentation contains tabs
 ]
 
 [tool.ruff.format]
@@ -101,5 +96,5 @@ exclude_also = ["if TYPE_CHECKING:"]
 [tool.mypy]
 cache_dir = ".cache/mypy"
 python_version = "3.10"
-ignore_missing_imports = true # brotli, rjsmin and rcssmin are missing type stubs
+ignore_missing_imports = true # brotli is missing type stubs
 strict = true
