@@ -31,6 +31,9 @@ jobs:
       - name: uv install
         run: uv sync --all-extras --dev
 
+      - name: Install headless Chromium
+        run: uv run playwright install --with-deps chromium --only-shell
+
       #----------------------------------------------
       #---- Show installation details
       #----------------------------------------------

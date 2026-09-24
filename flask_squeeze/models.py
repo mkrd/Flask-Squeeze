@@ -3,6 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from werkzeug.datastructures import Accept
+from werkzeug.http import parse_accept_header
+
 if TYPE_CHECKING:
 	from flask import Config
 	from werkzeug.datastructures import Headers
@@ -31,14 +34,15 @@ class Encoding(Enum):
 		"""
 		if not config.get("SQUEEZE_COMPRESS"):
 			return None
-		encoding = headers.get("Accept-Encoding", "").lower()
-		if "br" in encoding:
-			return cls.br
-		if "deflate" in encoding:
-			return cls.deflate
-		if "gzip" in encoding:
-			return cls.gzip
-		return None
+		accepted = parse_accept_header(headers.get("Accept-Encoding"), Accept)
+		best: Encoding | None = None
+		best_quality = 0.0
+		for encoding in (cls.br, cls.deflate, cls.gzip):
+			quality = accepted.quality(encoding.value)
+			if quality > best_quality:
+				best = encoding
+				best_quality = quality
+		return best
 
 
 class Minification(Enum):
@@ -54,15 +58,14 @@ class Minification(Enum):
 	) -> Minification | None:
 		"""
 		Based on the response mimetype:
-		- `js` or `json`, and `SQUEEZE_MINIFY_JS=True`: return `Minification.js`
+		- `javascript` and `SQUEEZE_MINIFY_JS=True`: return `Minification.js`
 		- `css` and `SQUEEZE_MINIFY_CSS=True`: return `Minification.css`
 		-  `html` and `SQUEEZE_MINIFY_HTML=True`: return `Minification.html`
 		- Otherwise, return `None`
 		"""
 		if mimetype is None:
 			return None
-		is_js_or_json = mimetype.endswith(("javascript", "json"))
-		if is_js_or_json and config.get("SQUEEZE_MINIFY_JS"):
+		if mimetype.endswith("javascript") and config.get("SQUEEZE_MINIFY_JS"):
 			return cls.js
 		if mimetype.endswith("css") and config.get("SQUEEZE_MINIFY_CSS"):
 			return cls.css
