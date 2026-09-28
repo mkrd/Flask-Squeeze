@@ -131,11 +131,7 @@ class Squeeze:
 		data = response.get_data(as_text=False)
 		data_hash = hashlib.sha256(data).hexdigest()
 
-		quality = (
-			self.get_configured_quality(encode_choice, ResourceType.static)
-			if encode_choice is not None
-			else None
-		)
+		quality = self.get_configured_quality(encode_choice, ResourceType.static) if encode_choice is not None else None
 		cache_key = CacheKey(request.path, encode_choice, minify_choice, quality)
 		cached = self.cache_static.get(cache_key)
 
@@ -201,7 +197,7 @@ class Squeeze:
 			log(1, "Response status code or content length is None. RETURN")
 			return response
 
-		if response.status_code not in range(200, 300):
+		if response.status_code not in range(200, 300) or response.status_code in (204, 205):
 			log(1, "Response status code is not ok. RETURN")
 			return response
 
@@ -212,6 +208,9 @@ class Squeeze:
 		if "Content-Encoding" in response.headers:
 			log(1, "Response already encoded. RETURN")
 			return response
+
+		if self.app.config["SQUEEZE_COMPRESS"]:
+			response.vary.add("Accept-Encoding")
 
 		# Assert: The response is ok, the size is above threshold, and the response is
 		# not already encoded.

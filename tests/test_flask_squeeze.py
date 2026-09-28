@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
 import tempfile
+import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import brotli
 import pytest
 from test_app import create_app
 
@@ -48,13 +51,22 @@ def use_minify_css(request: pytest.FixtureRequest) -> bool:
 #### MARK: Utilities
 
 
-def almost_equal(a: float, b: float, percent: float = 0.01) -> bool:
-	diff = abs(int(a) - int(b))
-	return diff < percent * int(a) and diff < percent * int(b)
-
-
 def content_length_correct(r: Response) -> bool:
 	return r.headers.get("Content-Length", 0) == str(len(r.data))
+
+
+def decoded_body(r: Response) -> bytes:
+	encoding = r.headers.get("Content-Encoding")
+	body = bytes(r.data)
+	if encoding == "gzip":
+		return gzip.decompress(body)
+	if encoding == "deflate":
+		return zlib.decompress(body)
+	if encoding == "br":
+		decoded = brotli.decompress(body)
+		assert isinstance(decoded, bytes)
+		return decoded
+	return body
 
 
 ########################################################################################
@@ -70,55 +82,48 @@ def test_init_app_with_existing_app() -> None:
 
 
 def test_get_index(client: FlaskClient, use_encoding: str) -> None:
-	print("test_get_index")
 	r = client.get("/", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	length = int(r.headers.get("Content-Length", "0"))
-	encoding = r.headers.get("Content-Encoding", "")
-
-	assert use_encoding == encoding
-
-	sizes = {
-		"": 3_932_146,
-		"br": 8_164,
-		"deflate": 83_554,
-		"gzip": 83_566,
-	}
-
-	assert almost_equal(length, sizes[use_encoding])
+	assert use_encoding == r.headers.get("Content-Encoding", "")
+	body = decoded_body(r)
+	assert body.startswith(b"<!DOCTYPE html>")
+	assert b".some-test-class{color:red" in body
+	assert b"function someTestFunction()" in body
 
 
 def test_get_css_file(client: FlaskClient, use_encoding: str, use_minify_css: bool) -> None:
-	print("test_get_css_file with", use_encoding, "minify:", use_minify_css)
 	client.application.config.update({"SQUEEZE_MINIFY_CSS": use_minify_css})
 	url = "/static/fomantic.css"
 	r = client.get(url, headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
-	response_length = int(r.headers.get("Content-Length", "0"))
 	encoding = r.headers.get("Content-Encoding", "")
 
 	assert use_encoding == encoding
-
-	sizes = {
-		("", True): 1_377_522,
-		("br", True): 117_261,
-		("deflate", True): 157_184,
-		("gzip", True): 157_196,
-		("", False): 1_642_530,
-		("br", False): 130_781,
-		("deflate", False): 179_986,
-		("gzip", False): 179_998,
-	}
-
-	assert almost_equal(response_length, sizes[(use_encoding, use_minify_css)])
+	body = decoded_body(r)
+	static_folder = client.application.static_folder
+	assert static_folder is not None
+	source = (Path(static_folder) / "fomantic.css").read_bytes()
+	if use_minify_css:
+		assert len(body) < len(source)
+		assert b".ui." in body
+	else:
+		assert body == source
 
 
 def test_get_js_file(client: FlaskClient, use_encoding: str, use_minify_js: bool) -> None:
-	print("test_get_js_file with", use_encoding, "minify:", use_minify_js)
 	client.application.config.update({"SQUEEZE_MINIFY_JS": use_minify_js})
 	r = client.get("/static/jquery.js", headers={"Accept-Encoding": use_encoding})
 	assert content_length_correct(r)
 	assert use_encoding == r.headers.get("Content-Encoding", "")
+	static_folder = client.application.static_folder
+	assert static_folder is not None
+	source = (Path(static_folder) / "jquery.js").read_bytes()
+	body = decoded_body(r)
+	if use_minify_js:
+		assert len(body) < len(source)
+		assert b"jQuery" in body
+	else:
+		assert body == source
 
 
 def test_get_jquery_no_minify(client: FlaskClient) -> None:

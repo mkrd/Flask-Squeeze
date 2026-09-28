@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -7,6 +8,8 @@ if TYPE_CHECKING:
 	from pathlib import Path
 
 	from .models import Encoding, Minification
+
+METADATA_LINE_COUNT = 2
 
 
 ########################################################################################
@@ -19,13 +22,11 @@ def _save_cache_entry_to_disk(
 	original_hash: str,
 	data: bytes,
 ) -> None:
-	# Save metadata
-	with (cache_dir / f"{cache_key.normalized}.meta").open("w") as f:
-		f.write(original_hash)
-
-	# Save data
 	with (cache_dir / f"{cache_key.normalized}.cache").open("wb") as f:
 		f.write(data)
+
+	with (cache_dir / f"{cache_key.normalized}.meta").open("w") as f:
+		f.write(f"{original_hash}\n{hashlib.sha256(data).hexdigest()}\n")
 
 
 def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
@@ -33,15 +34,26 @@ def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
 
 	for meta_file in cache_dir.glob("*.meta"):
 		cache_key = meta_file.stem
-		with meta_file.open() as f:
-			original_hash = f.read()
-
 		cache_file = meta_file.with_suffix(".cache")
+		with meta_file.open() as f:
+			metadata = f.read().splitlines()
+		if len(metadata) != METADATA_LINE_COUNT:
+			meta_file.unlink()
+			cache_file.unlink(missing_ok=True)
+			continue
+		original_hash, cached_hash = metadata
+
 		if cache_file.exists():
 			with cache_file.open("rb") as f:
 				cached_bytes = f.read()
+			if hashlib.sha256(cached_bytes).hexdigest() != cached_hash:
+				meta_file.unlink()
+				cache_file.unlink()
+				continue
 
 			data[cache_key] = (original_hash, cached_bytes)
+		else:
+			meta_file.unlink()
 
 	return data
 
@@ -51,7 +63,7 @@ def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
 
 
 def _variant_group(normalized: str) -> str:
-	"""Return the "{flat_path}.{encoding}" prefix shared by all variants of one (path, encoding)."""
+	"""Return the "{path_hash}.{encoding}" prefix shared by all variants of one (path, encoding)."""
 	return ".".join(normalized.split(".")[:-2])
 
 
@@ -63,15 +75,15 @@ class CacheKey:
 	quality: int | None
 
 	@property
-	def flat_path(self) -> str:
-		return self.path.replace("/", "_")
+	def path_hash(self) -> str:
+		return hashlib.sha256(self.path.encode("utf-8")).hexdigest()
 
 	@property
 	def normalized(self) -> str:
 		encoding = self.encoding.value if self.encoding else "none"
 		minification = self.minification.value if self.minification else "none"
 		quality = str(self.quality) if self.quality is not None else "none"
-		return f"{self.flat_path}.{encoding}.{minification}.{quality}"
+		return f"{self.path_hash}.{encoding}.{minification}.{quality}"
 
 
 @dataclass(frozen=True)
@@ -108,10 +120,7 @@ class Cache:
 
 		new_key = cache_key.normalized
 
-		for key in [
-			k for k in self.data
-			if _variant_group(k) == _variant_group(new_key)
-		]:
+		for key in [k for k in self.data if _variant_group(k) == _variant_group(new_key)]:
 			self._remove(key)
 
 		self.data[new_key] = (original_hash, data)
