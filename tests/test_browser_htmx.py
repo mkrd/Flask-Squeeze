@@ -9,7 +9,7 @@ from flask_squeeze import Squeeze
 
 def test_htmx_request_and_swap_in_browser() -> None:
 	app = Flask(__name__, static_folder=str(Path(__file__).parent / "fixtures"), static_url_path="/static")
-	app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_VERBOSE_LOGGING=False)
+	app.config.update(SQUEEZE_MIN_SIZE=0)
 
 	@app.get("/")
 	def index() -> Response:

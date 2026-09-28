@@ -69,7 +69,6 @@ To control how Flask-Squeeze behaves, the following options exist:
 | `SQUEEZE_COMPRESS` | `True` | Enable/disable compression |
 | `SQUEEZE_MIN_SIZE` | `500` | Minimum file size (bytes) to compress |
 | `SQUEEZE_CACHE_DIR` | `None` | Directory for persistent cache (`None` = in-memory only) |
-| `SQUEEZE_VERBOSE_LOGGING` | `False` | Enable debug output |
 
 ### Minification Options
 | Option | Default | Description |
@@ -92,10 +91,21 @@ app.config.update(
 	{
 		"SQUEEZE_CACHE_DIR": "./cache/flask_squeeze/",  # Enable persistent caching
 		"SQUEEZE_MIN_SIZE": 1000,  # Only compress files > 1KB
-		"SQUEEZE_VERBOSE_LOGGING": True,  # Debug mode
 	}
 )
 ```
+
+### Logging
+Flask-Squeeze logs through the standard `logging` module under the `flask_squeeze` logger.
+It emits `DEBUG` records explaining why each response was or was not squeezed.
+To see them, configure the logger in your app:
+```python
+import logging
+
+logging.getLogger("flask_squeeze").setLevel(logging.DEBUG)
+```
+The records then go to whatever handlers your application has configured,
+e.g. via `logging.basicConfig()`.
 
 
 Contributing

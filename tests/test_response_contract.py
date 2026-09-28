@@ -32,7 +32,7 @@ class AssetCase:
 
 def make_app(static_dir: Path, cache_dir: Path | None = None) -> Flask:
 	app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
-	app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_VERBOSE_LOGGING=False, SQUEEZE_CACHE_DIR=cache_dir)
+	app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_CACHE_DIR=cache_dir)
 	(static_dir / "sample.css").write_bytes(CSS)
 	(static_dir / "sample.js").write_bytes(JS)
 	(static_dir / "sample.html").write_bytes(HTML)
