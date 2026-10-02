@@ -84,6 +84,11 @@ They are read and validated once in `init_app`, so set them before calling it. C
 
 Unknown `SQUEEZE_*` keys raise an error in `init_app`, so a typo in a key name does not go unnoticed.
 
+Each disk cache entry stores metadata and squeezed bytes in one file. Writes use a temporary file in
+the same directory, then atomically replace the cache file. A thread lock synchronizes access within
+each cache instance; separate processes can overwrite one another without filesystem locks. Invalid
+or incompatible cache files are deleted on startup and rebuilt on the next request.
+
 ### Info headers
 With `SQUEEZE_INFO_HEADERS` enabled, squeezed responses carry:
 - `X-Flask-Squeeze-Minify`: minification ratio and duration, e.g. `ratio=1.4x; duration=0.3ms`

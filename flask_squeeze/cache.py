@@ -4,10 +4,11 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
 import tempfile
-import threading
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import TypeVar
 
 from .compress import CompressionStats
@@ -16,6 +17,9 @@ from .plan import Compression, Encoding, Minification, SqueezePlan
 from .squeeze import SqueezeResult
 
 FILENAME_PART_COUNT = 4
+CACHE_FORMAT_MAGIC = b"FSQ1"
+METADATA_LENGTH_BYTES = 4
+CACHE_HEADER_BYTES = len(CACHE_FORMAT_MAGIC) + METADATA_LENGTH_BYTES
 NOT_APPLIED_MARKER = "none"
 """Filename part for a step (compression or minification) the plan does not apply"""
 
@@ -85,13 +89,70 @@ class CacheEntry:
 	"""sha256 of the response body before squeezing"""
 	squeeze_result: SqueezeResult
 
+	def __post_init__(self) -> None:
+		plan = self.key.plan
+		result = self.squeeze_result
+		if (result.minification_stats is None) != (plan.minification is None):
+			msg = "Minification statistics must match the cache key's plan"
+			raise ValueError(msg)
+		if (result.compression_stats is None) != (plan.compression is None):
+			msg = "Compression statistics must match the cache key's plan"
+			raise ValueError(msg)
+		if (
+			result.compression_stats is not None
+			and plan.compression is not None
+			and result.compression_stats.level != plan.compression.level
+		):
+			msg = "Compression level must match the cache key's plan"
+			raise ValueError(msg)
+
+	def to_bytes(self) -> bytes:
+		body = self.squeeze_result.squeezed_body
+		metadata = CacheMetadata(
+			original_body_hash=self.original_body_hash,
+			squeezed_body_hash=hashlib.sha256(body).hexdigest(),
+			minification_stats=self.squeeze_result.minification_stats,
+			compression_stats=self.squeeze_result.compression_stats,
+		)
+		metadata_bytes = metadata.to_json().encode("utf-8")
+		return CACHE_FORMAT_MAGIC + len(metadata_bytes).to_bytes(METADATA_LENGTH_BYTES, "big") + metadata_bytes + body
+
+	@classmethod
+	def from_bytes(cls, filename_stem: str, content: bytes) -> CacheEntry | None:
+		"""Reject incompatible, incomplete, or corrupted cache files."""
+		if len(content) < CACHE_HEADER_BYTES or not content.startswith(CACHE_FORMAT_MAGIC):
+			return None
+		metadata_length = int.from_bytes(content[len(CACHE_FORMAT_MAGIC) : CACHE_HEADER_BYTES], "big")
+		body_offset = CACHE_HEADER_BYTES + metadata_length
+		if body_offset > len(content):
+			return None
+		try:
+			metadata_json = content[CACHE_HEADER_BYTES:body_offset].decode("utf-8")
+		except UnicodeDecodeError:
+			return None
+		return cls._from_metadata(filename_stem, metadata_json, content[body_offset:])
+
+	@classmethod
+	def _from_metadata(cls, filename_stem: str, metadata_json: str, body: bytes) -> CacheEntry | None:
+		key = CacheKey.from_filename_stem(filename_stem)
+		metadata = CacheMetadata.from_json(metadata_json)
+		if key is None or metadata is None:
+			return None
+		if hashlib.sha256(body).hexdigest() != metadata.squeezed_body_hash:
+			return None
+		result = SqueezeResult(body, metadata.minification_stats, metadata.compression_stats)
+		try:
+			return cls(key, metadata.original_body_hash, result)
+		except ValueError:
+			return None
+
 
 ########################################################################################
 #### MARK: Metadata
 
 
 class InvalidMetadataError(Exception):
-	"""The .meta file was not written by this version."""
+	"""The cache metadata was not written by this version."""
 
 
 def _required_json_field(json_object: object, key: str, field_type: type[JsonFieldT]) -> JsonFieldT:
@@ -127,7 +188,7 @@ def _required_json_statistic(json_object: object, key: str) -> float:
 
 @dataclass(frozen=True)
 class CacheMetadata:
-	"""Content of a .meta file. Its .cache file holds the squeezed body."""
+	"""JSON metadata preceding the squeezed body in a cache file."""
 
 	original_body_hash: str
 	squeezed_body_hash: str
@@ -172,11 +233,15 @@ class CacheMetadata:
 #### MARK: Disk
 
 
-def _write_atomically(path: Path, content: bytes) -> None:
-	"""Other processes sharing the cache dir never see a half written file."""
-	with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as f:
-		f.write(content)
-	Path(f.name).replace(path)
+def _write_entry_to_disk(path: Path, content: bytes) -> None:
+	file_descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+	temporary_path = Path(temporary_name)
+	try:
+		with os.fdopen(file_descriptor, "wb") as temporary_file:
+			temporary_file.write(content)
+		temporary_path.replace(path)
+	finally:
+		temporary_path.unlink(missing_ok=True)
 
 
 def _delete_entry_files(cache_dir: Path, filename_stem: str) -> None:
@@ -184,44 +249,20 @@ def _delete_entry_files(cache_dir: Path, filename_stem: str) -> None:
 		(cache_dir / f"{filename_stem}{suffix}").unlink(missing_ok=True)
 
 
-def _entry_from_file_contents(filename_stem: str, metadata_json: str, squeezed_body: bytes) -> CacheEntry | None:
-	"""Returns None if the files were not written by this version, or do not belong together."""
-	key = CacheKey.from_filename_stem(filename_stem)
-	metadata = CacheMetadata.from_json(metadata_json)
-	if key is None or metadata is None:
-		return None
-	if hashlib.sha256(squeezed_body).hexdigest() != metadata.squeezed_body_hash:
-		return None
-	if (metadata.minification_stats is None) != (key.plan.minification is None):
-		return None
-	if (metadata.compression_stats is None) != (key.plan.compression is None):
-		return None
-	if (
-		metadata.compression_stats is not None
-		and key.plan.compression is not None
-		and metadata.compression_stats.level != key.plan.compression.level
-	):
-		return None
-	squeeze_result = SqueezeResult(squeezed_body, metadata.minification_stats, metadata.compression_stats)
-	return CacheEntry(key, metadata.original_body_hash, squeeze_result)
-
-
 def _load_entries_from_disk(cache_dir: Path) -> list[CacheEntry]:
 	entries: list[CacheEntry] = []
-	for meta_file in cache_dir.glob("*.meta"):
+	for cache_file in cache_dir.glob("*.cache"):
 		try:
-			metadata_json = meta_file.read_text(encoding="utf-8")
-			squeezed_body = meta_file.with_suffix(".cache").read_bytes()
+			content = cache_file.read_bytes()
 		except FileNotFoundError:
-			continue  # Another process sharing cache_dir deleted this entry
-		except UnicodeDecodeError:
-			_delete_entry_files(cache_dir, meta_file.stem)
 			continue
-		entry = _entry_from_file_contents(meta_file.stem, metadata_json, squeezed_body)
+		entry = CacheEntry.from_bytes(cache_file.stem, content)
 		if entry is None:
-			_delete_entry_files(cache_dir, meta_file.stem)
+			_delete_entry_files(cache_dir, cache_file.stem)
 			continue
 		entries.append(entry)
+	for meta_file in cache_dir.glob("*.meta"):
+		meta_file.unlink(missing_ok=True)
 	return entries
 
 
@@ -235,7 +276,7 @@ class StaticFileCache:
 	def __init__(self, cache_dir: Path | None) -> None:
 		self._cache_dir = cache_dir
 		self._entries_by_slot: dict[CacheSlot, CacheEntry] = {}
-		self._lock = threading.Lock()
+		self._lock = Lock()
 
 		if cache_dir is None:
 			return
@@ -249,27 +290,20 @@ class StaticFileCache:
 	def get(self, key: CacheKey) -> CacheEntry | None:
 		with self._lock:
 			entry = self._entries_by_slot.get(key.slot)
-		if entry is None or entry.key != key:
-			return None
-		return entry
+			if entry is None or entry.key != key:
+				return None
+			return entry
 
 	def set(self, entry: CacheEntry) -> None:
 		"""Store the entry, replacing the entry of another variant in its slot."""
 		with self._lock:
-			previous_entry = self._entries_by_slot.get(entry.key.slot)
-			self._entries_by_slot[entry.key.slot] = entry
 			if self._cache_dir is None:
+				self._entries_by_slot[entry.key.slot] = entry
 				return
+			content = entry.to_bytes()
+			path = self._cache_dir / f"{entry.key.filename_stem}.cache"
+			_write_entry_to_disk(path, content)
+			previous_entry = self._entries_by_slot.get(entry.key.slot)
 			if previous_entry is not None and previous_entry.key != entry.key:
 				_delete_entry_files(self._cache_dir, previous_entry.key.filename_stem)
-			# .cache before .meta: a .meta file only exists once its .cache is complete
-			filename_stem = entry.key.filename_stem
-			squeezed_body = entry.squeeze_result.squeezed_body
-			_write_atomically(self._cache_dir / f"{filename_stem}.cache", squeezed_body)
-			metadata = CacheMetadata(
-				original_body_hash=entry.original_body_hash,
-				squeezed_body_hash=hashlib.sha256(squeezed_body).hexdigest(),
-				minification_stats=entry.squeeze_result.minification_stats,
-				compression_stats=entry.squeeze_result.compression_stats,
-			)
-			_write_atomically(self._cache_dir / f"{filename_stem}.meta", metadata.to_json().encode())
+			self._entries_by_slot[entry.key.slot] = entry

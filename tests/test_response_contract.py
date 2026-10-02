@@ -13,6 +13,7 @@ from flask import Flask, Response
 from typing_extensions import override
 
 from flask_squeeze import Squeeze
+from flask_squeeze.cache import CacheEntry
 from flask_squeeze.plan import Encoding, ResourceType
 from tests.sample_app import CSS, HTML, JS, decoded_body, make_sample_app
 
@@ -366,7 +367,10 @@ class ResponseContractTest(unittest.TestCase):
 		response = restarted.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
 		self.assertEqual(response.headers["X-Flask-Squeeze-Cache"], "MISS")
 		self.assertEqual(decoded_body(response), MINIFIED_CSS)
-		self.assertEqual(cache_file.read_bytes(), response.data)
+		entry = CacheEntry.from_bytes(cache_file.stem, cache_file.read_bytes())
+		if entry is None:
+			self.fail("Expected a valid rewritten cache entry")
+		self.assertEqual(entry.squeeze_result.squeezed_body, response.data)
 		hit = restarted.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
 		self.assertEqual(hit.headers["X-Flask-Squeeze-Cache"], "HIT")
 
@@ -396,7 +400,7 @@ class ResponseContractTest(unittest.TestCase):
 
 		self.assertEqual(list(self.cache_dir.glob("*.tmp")), [])
 		self.assertEqual(len(list(self.cache_dir.glob("*.cache"))), 1)
-		self.assertEqual(len(list(self.cache_dir.glob("*.meta"))), 1)
+		self.assertEqual(list(self.cache_dir.glob("*.meta")), [])
 
 		restarted = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir})
 		response = restarted.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
