@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -52,10 +53,14 @@ class CacheKey:
 			return None
 		if (encoding == NOT_APPLIED_MARKER) != (level == NOT_APPLIED_MARKER):
 			return None
-		if level != NOT_APPLIED_MARKER and not level.isdigit():
-			return None
+		compression = None
+		if encoding != NOT_APPLIED_MARKER:
+			selected_encoding = Encoding(encoding)
+			if level not in {str(valid_level) for valid_level in range(selected_encoding.max_level + 1)}:
+				return None
+			compression = Compression(selected_encoding, int(level))
 		plan = SqueezePlan(
-			compression=None if encoding == NOT_APPLIED_MARKER else Compression(Encoding(encoding), int(level)),
+			compression=compression,
 			minification=None if minification == NOT_APPLIED_MARKER else Minification(minification),
 		)
 		return cls(request_path_hash, plan)
@@ -105,6 +110,21 @@ def _optional_json_field(json_object: object, key: str, field_type: type[JsonFie
 	return value
 
 
+def _required_json_level(json_object: object) -> int:
+	key = "level"
+	level = _required_json_field(json_object, key, int)
+	if isinstance(level, bool) or level < 0:
+		raise InvalidMetadataError(key)
+	return level
+
+
+def _required_json_statistic(json_object: object, key: str) -> float:
+	value = _required_json_field(json_object, key, float)
+	if not math.isfinite(value) or value < 0:
+		raise InvalidMetadataError(key)
+	return value
+
+
 @dataclass(frozen=True)
 class CacheMetadata:
 	"""Content of a .meta file. Its .cache file holds the squeezed body."""
@@ -122,6 +142,9 @@ class CacheMetadata:
 		"""Inverse of `to_json`. Returns None for content this version did not write."""
 		try:
 			metadata: object = json.loads(text)
+		except (ValueError, RecursionError):
+			return None
+		try:
 			minification = _optional_json_field(metadata, "minification_stats", dict)
 			compression = _optional_json_field(metadata, "compression_stats", dict)
 			return cls(
@@ -130,18 +153,18 @@ class CacheMetadata:
 				minification_stats=None
 				if minification is None
 				else MinificationStats(
-					duration_seconds=_required_json_field(minification, "duration_seconds", float),
-					size_ratio=_required_json_field(minification, "size_ratio", float),
+					duration_seconds=_required_json_statistic(minification, "duration_seconds"),
+					size_ratio=_required_json_statistic(minification, "size_ratio"),
 				),
 				compression_stats=None
 				if compression is None
 				else CompressionStats(
-					level=_required_json_field(compression, "level", int),
-					duration_seconds=_required_json_field(compression, "duration_seconds", float),
-					size_ratio=_required_json_field(compression, "size_ratio", float),
+					level=_required_json_level(compression),
+					duration_seconds=_required_json_statistic(compression, "duration_seconds"),
+					size_ratio=_required_json_statistic(compression, "size_ratio"),
 				),
 			)
-		except (json.JSONDecodeError, InvalidMetadataError):
+		except InvalidMetadataError:
 			return None
 
 
@@ -173,6 +196,12 @@ def _entry_from_file_contents(filename_stem: str, metadata_json: str, squeezed_b
 		return None
 	if (metadata.compression_stats is None) != (key.plan.compression is None):
 		return None
+	if (
+		metadata.compression_stats is not None
+		and key.plan.compression is not None
+		and metadata.compression_stats.level != key.plan.compression.level
+	):
+		return None
 	squeeze_result = SqueezeResult(squeezed_body, metadata.minification_stats, metadata.compression_stats)
 	return CacheEntry(key, metadata.original_body_hash, squeeze_result)
 
@@ -181,10 +210,13 @@ def _load_entries_from_disk(cache_dir: Path) -> list[CacheEntry]:
 	entries: list[CacheEntry] = []
 	for meta_file in cache_dir.glob("*.meta"):
 		try:
-			metadata_json = meta_file.read_text()
+			metadata_json = meta_file.read_text(encoding="utf-8")
 			squeezed_body = meta_file.with_suffix(".cache").read_bytes()
 		except FileNotFoundError:
 			continue  # Another process sharing cache_dir deleted this entry
+		except UnicodeDecodeError:
+			_delete_entry_files(cache_dir, meta_file.stem)
+			continue
 		entry = _entry_from_file_contents(meta_file.stem, metadata_json, squeezed_body)
 		if entry is None:
 			_delete_entry_files(cache_dir, meta_file.stem)

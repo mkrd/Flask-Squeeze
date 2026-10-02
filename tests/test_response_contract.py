@@ -362,9 +362,13 @@ class ResponseContractTest(unittest.TestCase):
 		cache_file.write_bytes(b"corrupted")
 
 		restarted = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir})
+		self.assertEqual(list(self.cache_dir.iterdir()), [])
 		response = restarted.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
 		self.assertEqual(response.headers["X-Flask-Squeeze-Cache"], "MISS")
 		self.assertEqual(decoded_body(response), MINIFIED_CSS)
+		self.assertEqual(cache_file.read_bytes(), response.data)
+		hit = restarted.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
+		self.assertEqual(hit.headers["X-Flask-Squeeze-Cache"], "HIT")
 
 	def test_distinct_paths_keep_distinct_cache_entries(self) -> None:
 		(self.tmp_path / "a_b.css").write_bytes(b".one { color: red; }")
