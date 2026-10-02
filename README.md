@@ -1,8 +1,8 @@
-![Logo](https://github.com/mkrd/Flask-Squeeze/blob/main/assets/logo.png?raw=true)
+![Logo](https://git.budgetflow.cc/mkrd/flask-squeeze/raw/branch/main/assets/logo.png)
 
 [![Downloads](https://pepy.tech/badge/flask-squeeze)](https://pepy.tech/project/flask-squeeze)
-![Tests](https://github.com/mkrd/Flask-Squeeze/actions/workflows/test.yml/badge.svg)
-![Coverage](https://github.com/mkrd/Flask-Squeeze/blob/main/assets/coverage.svg?raw=1)
+![Tests](https://git.budgetflow.cc/mkrd/flask-squeeze/actions/workflows/test.yml/badge.svg)
+![Coverage](https://git.budgetflow.cc/mkrd/flask-squeeze/raw/branch/main/assets/coverage.svg)
 
 Flask-Squeeze is a Flask extension that automatically:
 - **Minifies** responses with JavaScript, CSS, and HTML content
@@ -153,14 +153,17 @@ e.g. via `logging.basicConfig()`.
 Contributing
 ----------------------------------------------------------------------------------------
 
+Development, issues, and pull requests are hosted on [Forgejo](https://git.budgetflow.cc/mkrd/flask-squeeze).
+The GitHub repository is a read-only mirror.
+
 1. **Report bugs** by opening an issue
 2. **Submit pull requests** with improvements
 3. **Improve documentation**
 
 ### Development Setup
 ```bash
-git clone https://github.com/mkrd/Flask-Squeeze.git
-cd Flask-Squeeze
+git clone https://git.budgetflow.cc/mkrd/flask-squeeze.git
+cd flask-squeeze
 uv sync
 uv run playwright install chromium  # Needed once, for the browser test
 just check  # Format, lint, type check and test

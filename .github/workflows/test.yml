@@ -2,10 +2,11 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
-
-  # JOB: Tests
   tests-job:
-    runs-on: ubuntu-latest
+    runs-on: alpine-uv
+    # Playwright requires glibc, so use Debian on the existing runner.
+    container:
+      image: ghcr.io/astral-sh/uv:0.12.22-python3.14-trixie
 
     strategy:
       matrix:
@@ -15,125 +16,95 @@ jobs:
       UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
-      #----------------------------------------------
-      #---- Checkout and install uv and python
-      #----------------------------------------------
+      # MARK: Environment
 
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git nodejs just
+
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
       - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+        run: uv python install "$UV_PYTHON"
 
-      #----------------------------------------------
-      #---- Install dependencies
-      #----------------------------------------------
-
-      - name: uv install
-        run: uv sync --all-extras --dev
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
 
       - name: Install headless Chromium
         run: uv run playwright install --with-deps chromium --only-shell
 
-      #----------------------------------------------
-      #---- Show installation details
-      #----------------------------------------------
-
-      - name: uv --version
-        run: uv --version
       - name: Verify Python version
         run: |
           uv run python --version
           test "$(uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "$UV_PYTHON"
-      - name: ls -lah
-        run: ls -lah
-      - name: uv tree
-        run: uv tree
 
+      # MARK: Code quality
 
-      #----------------------------------------------
-      #---- Linting and Static Analysis
-      #----------------------------------------------
+      - name: Ruff checks
+        run: just ruff-check
 
-      - name: 🔎 Ruff checks
-        run: uv run ruff check .
-
-      - name: 🔎 Ruff format checks
+      - name: Ruff format checks
         run: uv run ruff format --check .
 
-      - name: 🔎 Pyrefly Static Type Checker
-        run: uv run pyrefly check . --no-progress-bar
+      - name: Pyrefly checks
+        run: just typecheck
 
-      #----------------------------------------------
-      #---- Run tests with coverage report
-      #----------------------------------------------
+      - name: Run tests with coverage
+        run: just test
 
-      - name: 🚀 Run tests with code coverage report
-        run: |
-          uv run coverage run -m unittest discover --start-directory tests --top-level-directory .
-          uv run coverage report --show-missing
-
-      #----------------------------------------------
-      #---- Save coverage artifact
-      #----------------------------------------------
-
-      - name: Show artifacts (ls -lah)
-        run: ls -lah
-      - uses: actions/upload-artifact@v4
+      - name: Upload coverage
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
         with:
           name: coverage-${{ matrix.python-version }}
-          include-hidden-files: true
           if-no-files-found: error
-          path: ".cache/coverage"
+          path: .cache/coverage
 
-  # JOB: Coverage Badge
   cov-badge-job:
     needs: tests-job
-    runs-on: ubuntu-latest
+    if: forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main'
+    runs-on: alpine-uv
+    container:
+      image: ghcr.io/astral-sh/uv:0.12.22-python3.14-trixie
+
+    env:
+      UV_PYTHON: "3.12"
+
     steps:
-      - uses: actions/checkout@v4
+      # MARK: Environment
 
-      #----------------------------------------------
-      #---- Download and debug artifact
-      #----------------------------------------------
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git nodejs
 
-      - uses: actions/download-artifact@v4
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: Download coverage
+        uses: https://data.forgejo.org/actions/download-artifact@v3
         with:
           name: coverage-3.12
           path: .cache
 
+      # MARK: Coverage badge
 
-      #----------------------------------------------
-      #---- Generate coverage badge
-      #----------------------------------------------
-
-      - name: Generate Coverage Badge
-        uses: tj-actions/coverage-badge-py@v2
-        with:
-          output: assets/coverage.svg
-
-      #----------------------------------------------
-      #---- Verify and commit changes
-      #----------------------------------------------
-
-      - name: Verify Changed Files
-        uses: tj-actions/verify-changed-files@v17
-        id: changed_files
-        with:
-          files: assets/coverage.svg
-
-      - name: Commit Files
-        if: steps.changed_files.outputs.files_changed == 'true'
+      - name: Generate coverage badge
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          uv run coverage xml
+          uv run --with 'genbadge[coverage]' genbadge coverage -i coverage.xml -o assets/coverage.svg
+
+      - name: Commit and push coverage badge if changed
+        run: |
           git add assets/coverage.svg
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "actions[bot]"
+          git config user.email "actions[bot]@users.noreply.git.budgetflow.cc"
           git commit -m "Updated assets/coverage.svg"
-      - name: Push Changes
-        if: steps.changed_files.outputs.files_changed == 'true'
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.github_token }}
-          branch: ${{ github.ref }}
+          git push origin HEAD:refs/heads/main
