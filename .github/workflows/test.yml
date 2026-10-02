@@ -9,7 +9,10 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
       #----------------------------------------------
@@ -40,8 +43,10 @@ jobs:
 
       - name: uv --version
         run: uv --version
-      - name: uv run python --version
-        run: uv run python --version
+      - name: Verify Python version
+        run: |
+          uv run python --version
+          test "$(uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "$UV_PYTHON"
       - name: ls -lah
         run: ls -lah
       - name: uv tree
