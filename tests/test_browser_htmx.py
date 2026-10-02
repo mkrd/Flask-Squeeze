@@ -52,7 +52,7 @@ class BrowserHtmxTest(unittest.TestCase):
 		page.goto("http://squeeze.test/")
 		self.assertEqual(page.evaluate("typeof htmx"), "object")
 		page.get_by_role("button", name="Load").click()
-		self.assertIn("/fragment", paths)
 		expect(page.locator("#result")).to_have_text("Loaded")
+		self.assertIn("/fragment", paths)
 		page.get_by_role("button", name="Add row").click()
 		expect(page.locator("#rows > tr > td")).to_have_text(["First", "Second"])
