@@ -23,6 +23,16 @@ A response is left untouched if any of these hold:
 
 Squeezed responses get their own ETag per variant (original ETag plus a suffix such as `-minjs-br11`),
 and their `Accept-Ranges` header is removed, since byte ranges refer to the original file.
+Conditional requests (`If-None-Match`, `If-Modified-Since`, `If-Match`) for static files are answered
+against the variant's ETag.
+
+### Text encoding
+Minification only supports UTF-8. Responses that declare another charset are compressed, but not minified.
+A response that declares UTF-8, which Flask does for all text by default, but is not valid UTF-8 raises a
+`UnicodeDecodeError`. A leading byte order mark is removed when minifying.
+
+HTML that does not start with a doctype or an `<html>`, `<head>` or `<body>` tag is minified as a fragment,
+so partial responses, such as table rows for htmx, keep all their tags.
 
 
 Table of Contents

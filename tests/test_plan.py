@@ -8,6 +8,8 @@ from flask import Config
 from flask_squeeze.config import SqueezeConfig
 from flask_squeeze.extension import plan_squeeze, resource_type_for_endpoint
 from flask_squeeze.plan import Compression, Encoding, Minification, ResourceType, SqueezePlan
+from flask_squeeze.squeeze import apply_squeeze_plan
+from tests.sample_app import CSS, MINIFIED_CSS, decompress
 
 DEFAULT_CONFIG = SqueezeConfig.from_flask_config(Config("."))
 
@@ -20,6 +22,7 @@ class PlanCase:
 	resource_type: ResourceType
 	expected: SqueezePlan | None
 	config: SqueezeConfig = DEFAULT_CONFIG
+	charset: str | None = None
 
 
 PLAN_CASES = [
@@ -75,6 +78,23 @@ PLAN_CASES = [
 		SqueezePlan(Compression(Encoding.gzip, 9), None),
 		SqueezeConfig.from_flask_config(Config(".", {"SQUEEZE_MINIFY_CSS": False})),
 	),
+	PlanCase(
+		"declared utf-8 is minified",
+		"gzip",
+		"text/css",
+		ResourceType.dynamic,
+		SqueezePlan(Compression(Encoding.gzip, 1), Minification.css),
+		charset="UTF-8",
+	),
+	PlanCase(
+		"other charsets are only compressed",
+		"gzip",
+		"text/css",
+		ResourceType.dynamic,
+		SqueezePlan(Compression(Encoding.gzip, 1), None),
+		charset="iso-8859-1",
+	),
+	PlanCase("other charsets without compression", None, "text/html", ResourceType.dynamic, None, charset="ascii"),
 ]
 
 
@@ -82,10 +102,10 @@ class PlanSqueezeTest(unittest.TestCase):
 	def test_plan_squeeze(self) -> None:
 		for case in PLAN_CASES:
 			with self.subTest(case.name):
-				plan = plan_squeeze(case.config, case.accept_encoding, case.mimetype, case.resource_type)
+				plan = plan_squeeze(case.config, case.accept_encoding, case.mimetype, case.charset, case.resource_type)
 				self.assertEqual(plan, case.expected)
 
-	def test_resource_type_of(self) -> None:
+	def test_resource_type_for_endpoint(self) -> None:
 		cases = [
 			("static", ResourceType.static),
 			("assets.static", ResourceType.static),
@@ -97,6 +117,55 @@ class PlanSqueezeTest(unittest.TestCase):
 			with self.subTest(endpoint=endpoint):
 				self.assertEqual(resource_type_for_endpoint(endpoint), expected)
 
+
+class SqueezePlanTest(unittest.TestCase):
 	def test_plan_needs_compression_or_minification(self) -> None:
-		with self.assertRaises(ValueError):
+		with self.assertRaisesRegex(ValueError, "needs a compression, a minification, or both"):
 			SqueezePlan(None, None)
+
+	def test_etag_suffix_names_each_applied_step(self) -> None:
+		cases = [
+			(SqueezePlan(Compression(Encoding.br, 11), Minification.css), "mincss-br11"),
+			(SqueezePlan(Compression(Encoding.gzip, 0), None), "gzip0"),
+			(SqueezePlan(None, Minification.js), "minjs"),
+		]
+		for plan, expected in cases:
+			with self.subTest(plan=plan):
+				self.assertEqual(plan.etag_suffix, expected)
+
+	def test_minification_for_mimetype(self) -> None:
+		cases = [
+			("text/html", Minification.html),
+			("text/css", Minification.css),
+			("text/javascript", Minification.js),
+			("application/javascript", Minification.js),
+			("application/x-javascript", Minification.js),
+			("application/json", None),
+			("application/xhtml+xml", None),
+			("image/svg+xml", None),
+			(None, None),
+		]
+		for mimetype, expected in cases:
+			with self.subTest(mimetype=mimetype):
+				self.assertIs(Minification.for_mimetype(mimetype), expected)
+
+	def test_minification_for_mimetype_ignores_case(self) -> None:
+		self.assertIs(Minification.for_mimetype("Text/HTML"), Minification.html)
+		self.assertIs(Minification.for_mimetype("APPLICATION/JAVASCRIPT"), Minification.js)
+
+
+class ApplySqueezePlanTest(unittest.TestCase):
+	def test_minifies_before_compressing(self) -> None:
+		result = apply_squeeze_plan(CSS, SqueezePlan(Compression(Encoding.gzip, 9), Minification.css))
+		self.assertEqual(decompress(result.squeezed_body, Encoding.gzip), MINIFIED_CSS)
+		self.assertIsNotNone(result.minification_stats)
+		self.assertIsNotNone(result.compression_stats)
+
+	def test_skipped_steps_have_no_stats(self) -> None:
+		minified = apply_squeeze_plan(CSS, SqueezePlan(None, Minification.css))
+		self.assertEqual(minified.squeezed_body, MINIFIED_CSS)
+		self.assertIsNone(minified.compression_stats)
+
+		compressed = apply_squeeze_plan(CSS, SqueezePlan(Compression(Encoding.br, 5), None))
+		self.assertEqual(decompress(compressed.squeezed_body, Encoding.br), CSS)
+		self.assertIsNone(compressed.minification_stats)

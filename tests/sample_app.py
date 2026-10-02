@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import gzip
+import tempfile
+import unittest
 import zlib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import brotli
 from flask import Blueprint, Flask, Response, render_template_string
+from typing_extensions import override
 
 from flask_squeeze import Squeeze
 from flask_squeeze.plan import Encoding
@@ -13,13 +17,13 @@ from tests.buffered_client import BufferedTestClient
 
 if TYPE_CHECKING:
 	from collections.abc import Mapping
-	from pathlib import Path
 
 	from werkzeug.wrappers import Response as WerkzeugResponse
 
 CSS = b".box { color: red; margin: 0px; }"
 JS = b"const answer = 42; // comment\n"
 HTML = b"<p>Hello</p><!-- comment -->"
+MINIFIED_CSS = b".box{color:red;margin:0}"
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
@@ -41,21 +45,24 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def make_sample_app(
-	static_dir: Path,
-	config: Mapping[str, object] | None = None,
-	static_url_path: str = "/static",
-) -> Flask:
-	"""App serving sample assets from `static_dir`, so tests can change files without touching fixtures."""
-	app = Flask(__name__, static_folder=str(static_dir), static_url_path=static_url_path)
-	app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_INFO_HEADERS=True)
-	app.config.update(config or {})
+def write_sample_assets(static_dir: Path) -> None:
 	(static_dir / "sample.css").write_bytes(CSS)
 	(static_dir / "sample.js").write_bytes(JS)
 	(static_dir / "sample.html").write_bytes(HTML)
 	blueprint_static_dir = static_dir / "blueprint"
 	blueprint_static_dir.mkdir(exist_ok=True)
 	(blueprint_static_dir / "sample.css").write_bytes(CSS)
+
+
+def make_sample_app(
+	static_dir: Path,
+	config: Mapping[str, object] | None = None,
+	static_url_path: str = "/static",
+) -> Flask:
+	"""App serving the assets of `write_sample_assets` from `static_dir`."""
+	app = Flask(__name__, static_folder=str(static_dir), static_url_path=static_url_path)
+	app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_INFO_HEADERS=True)
+	app.config.update(config or {})
 
 	@app.get("/")
 	def rendered_page() -> str:
@@ -89,7 +96,7 @@ def make_sample_app(
 	def status_response(code: int) -> Response:
 		return Response(b"payload", status=code, mimetype="text/plain")
 
-	blueprint = Blueprint("assets", __name__, static_folder=str(blueprint_static_dir), static_url_path="/files")
+	blueprint = Blueprint("assets", __name__, static_folder=str(static_dir / "blueprint"), static_url_path="/files")
 	app.register_blueprint(blueprint, url_prefix="/assets")
 
 	Squeeze(app)
@@ -98,12 +105,8 @@ def make_sample_app(
 	return app
 
 
-def decoded_body(response: WerkzeugResponse) -> bytes:
-	body: bytes = response.data
-	content_encoding = response.headers.get("Content-Encoding")
-	if content_encoding is None:
-		return body
-	match Encoding(content_encoding):
+def decompress(body: bytes, encoding: Encoding) -> bytes:
+	match encoding:
 		case Encoding.gzip:
 			return gzip.decompress(body)
 		case Encoding.deflate:
@@ -114,3 +117,24 @@ def decoded_body(response: WerkzeugResponse) -> bytes:
 				msg = f"brotli returned {type(decoded)}, expected bytes"
 				raise TypeError(msg)
 			return decoded
+
+
+def decoded_body(response: WerkzeugResponse) -> bytes:
+	body: bytes = response.data
+	content_encoding = response.headers.get("Content-Encoding")
+	if content_encoding is None:
+		return body
+	return decompress(body, Encoding(content_encoding))
+
+
+class SampleAppTestCase(unittest.TestCase):
+	"""Serves the sample assets from a fresh temporary directory per test."""
+
+	@override
+	def setUp(self) -> None:
+		self.tmp_path = Path(self.enterContext(tempfile.TemporaryDirectory()))
+		self.cache_dir = self.tmp_path / "cache"
+		write_sample_assets(self.tmp_path)
+
+	def make_app(self, config: Mapping[str, object] | None = None) -> Flask:
+		return make_sample_app(self.tmp_path, config)

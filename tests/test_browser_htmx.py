@@ -19,13 +19,19 @@ class BrowserHtmxTest(unittest.TestCase):
 			return Response(
 				'<script src="/static/htmx.js"></script>'
 				'<button hx-get="/fragment" hx-target="#result">Load</button>'
-				'<div id="result"></div>',
+				'<div id="result"></div>'
+				'<button hx-get="/row" hx-target="#rows" hx-swap="beforeend">Add row</button>'
+				'<table><tbody id="rows"></tbody></table>',
 				mimetype="text/html",
 			)
 
 		@app.get("/fragment")
 		def fragment() -> Response:
 			return Response("<span>Loaded</span>", mimetype="text/html")
+
+		@app.get("/row")
+		def row() -> Response:
+			return Response("<tr><td>First</td><td>Second</td></tr>", mimetype="text/html")
 
 		Squeeze(app)
 		app.test_client_class = BufferedTestClient
@@ -38,15 +44,15 @@ class BrowserHtmxTest(unittest.TestCase):
 			response = client.get(path)
 			route.fulfill(status=response.status_code, body=response.data, content_type=response.content_type)
 
-		with sync_playwright() as playwright:
-			browser = playwright.chromium.launch()
-			try:
-				page = browser.new_page()
-				page.route("**/*", serve)
-				page.goto("http://squeeze.test/")
-				self.assertEqual(page.evaluate("typeof htmx"), "object")
-				page.get_by_role("button", name="Load").click()
-				self.assertIn("/fragment", paths)
-				expect(page.locator("#result")).to_have_text("Loaded")
-			finally:
-				browser.close()
+		playwright = self.enterContext(sync_playwright())
+		browser = playwright.chromium.launch()
+		self.addCleanup(browser.close)
+		page = browser.new_page()
+		page.route("**/*", serve)
+		page.goto("http://squeeze.test/")
+		self.assertEqual(page.evaluate("typeof htmx"), "object")
+		page.get_by_role("button", name="Load").click()
+		self.assertIn("/fragment", paths)
+		expect(page.locator("#result")).to_have_text("Loaded")
+		page.get_by_role("button", name="Add row").click()
+		expect(page.locator("#rows > tr > td")).to_have_text(["First", "Second"])

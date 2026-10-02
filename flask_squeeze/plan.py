@@ -44,7 +44,10 @@ class Minification(Enum):
 
 	@classmethod
 	def for_mimetype(cls, mimetype: str | None) -> Minification | None:
-		match mimetype:
+		if mimetype is None:
+			return None
+		# Media types are case-insensitive, and werkzeug keeps the case of the Content-Type header
+		match mimetype.lower():
 			case "text/html":
 				return cls.html
 			case "text/css":

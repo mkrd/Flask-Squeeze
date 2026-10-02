@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 EXTENSION_KEY = "squeeze"
 CACHE_STATUS_HEADER = "X-Flask-Squeeze-Cache"
 UNTOUCHED_SUCCESS_STATUSES = (HTTPStatus.NO_CONTENT, HTTPStatus.RESET_CONTENT, HTTPStatus.PARTIAL_CONTENT)
+CONDITIONAL_ANSWER_STATUSES = (HTTPStatus.NOT_MODIFIED, HTTPStatus.PRECONDITION_FAILED)
+UTF8_CHARSETS = frozenset({"utf-8", "utf8"})
 
 
 class Squeeze:
@@ -56,16 +58,27 @@ def resource_type_for_endpoint(endpoint: str | None) -> ResourceType:
 	return ResourceType.dynamic
 
 
+def is_conditional_answer_of_static_view(response: Response, resource_type: ResourceType) -> bool:
+	"""
+	The static view answers conditional requests against the original ETag, but the response
+	still holds the full body. Flask-Squeeze answers them again against the variant's ETag.
+	"""
+	return resource_type is ResourceType.static and response.status_code in CONDITIONAL_ANSWER_STATUSES
+
+
 def plan_squeeze(
 	config: SqueezeConfig,
 	accept_encoding_header: str | None,
 	mimetype: str | None,
+	charset: str | None,
 	resource_type: ResourceType,
 ) -> SqueezePlan | None:
 	"""Return what to do with a squeezable response, or None if nothing applies."""
 	encoding = negotiate_encoding(accept_encoding_header) if config.compression_enabled else None
 	minification = Minification.for_mimetype(mimetype)
-	if minification not in config.enabled_minifications:
+	# Minifiers only handle UTF-8, which is assumed when no charset is declared
+	is_utf8 = charset is None or charset.lower() in UTF8_CHARSETS
+	if minification not in config.enabled_minifications or not is_utf8:
 		minification = None
 	if encoding is None and minification is None:
 		return None
@@ -102,7 +115,8 @@ class ResponseSqueezer:
 	#### MARK: After Request
 
 	def after_request(self, response: Response) -> Response:
-		if not self._is_squeezable(response):
+		resource_type = resource_type_for_endpoint(request.endpoint)
+		if not self._is_squeezable(response, resource_type):
 			return response
 
 		# Vary even if this response stays uncompressed: other clients may get a compressed
@@ -110,11 +124,20 @@ class ResponseSqueezer:
 		if self.config.compression_enabled:
 			response.vary.add("Accept-Encoding")
 
-		resource_type = resource_type_for_endpoint(request.endpoint)
-		plan = plan_squeeze(self.config, request.headers.get("Accept-Encoding"), response.mimetype, resource_type)
+		plan = plan_squeeze(
+			self.config,
+			request.headers.get("Accept-Encoding"),
+			response.mimetype,
+			response.mimetype_params.get("charset"),
+			resource_type,
+		)
 		if plan is None:
 			_log_for_request("skipped, no compression or minification applicable")
 			return response
+
+		if is_conditional_answer_of_static_view(response, resource_type):
+			_log_for_request("answering the static view's status %d again for the variant", response.status_code)
+			response.status_code = HTTPStatus.OK
 
 		response.direct_passthrough = False  # Squeezing reads the whole body
 
@@ -128,12 +151,15 @@ class ResponseSqueezer:
 		_log_for_request("squeezed, compression=%s, minification=%s", plan.compression, plan.minification)
 		return response
 
-	def _is_squeezable(self, response: Response) -> bool:
+	def _is_squeezable(self, response: Response, resource_type: ResourceType) -> bool:
 		if response.content_length is None:
 			_log_for_request("skipped, content length unknown")
 			return False
 
-		if response.status_code not in range(200, 300) or response.status_code in UNTOUCHED_SUCCESS_STATUSES:
+		is_squeezable_success = (
+			response.status_code in range(200, 300) and response.status_code not in UNTOUCHED_SUCCESS_STATUSES
+		)
+		if not is_squeezable_success and not is_conditional_answer_of_static_view(response, resource_type):
 			_log_for_request("skipped, status code %d", response.status_code)
 			return False
 

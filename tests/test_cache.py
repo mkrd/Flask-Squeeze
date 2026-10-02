@@ -3,15 +3,13 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from threading import Barrier
+from typing import TYPE_CHECKING
 from unittest.mock import patch
-
-from typing_extensions import override
 
 from flask_squeeze.cache import (
 	CACHE_FORMAT_MAGIC,
@@ -26,7 +24,10 @@ from flask_squeeze.compress import CompressionStats
 from flask_squeeze.minify import MinificationStats
 from flask_squeeze.plan import Compression, Encoding, Minification, SqueezePlan
 from flask_squeeze.squeeze import SqueezeResult
-from tests.sample_app import make_sample_app
+from tests.sample_app import SampleAppTestCase
+
+if TYPE_CHECKING:
+	from collections.abc import Callable, Mapping
 
 GZIP_ONLY_PLAN = SqueezePlan(Compression(Encoding.gzip, 9), None)
 GZIP_AND_MINIFY_CSS_PLAN = SqueezePlan(Compression(Encoding.gzip, 9), Minification.css)
@@ -46,16 +47,13 @@ def make_cache_entry(request_path: str, plan: SqueezePlan, squeezed_body: bytes)
 	)
 
 
-class PersistentCacheTest(unittest.TestCase):
-	@override
-	def setUp(self) -> None:
-		temp_dir = tempfile.TemporaryDirectory()
-		self.addCleanup(temp_dir.cleanup)
-		self.tmp_path = Path(temp_dir.name)
-		self.cache_dir = self.tmp_path / "cache"
+def replace_first_metadata_byte(content: bytes, replacement: bytes) -> bytes:
+	return content[:CACHE_HEADER_BYTES] + replacement + content[CACHE_HEADER_BYTES + 1 :]
 
+
+class PersistentCacheTest(SampleAppTestCase):
 	def fetch_sample_css_cache_status(self, config: dict[str, object] | None = None, encoding: str = "gzip") -> str:
-		app = make_sample_app(self.tmp_path, {"SQUEEZE_CACHE_DIR": self.cache_dir, **(config or {})})
+		app = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir, **(config or {})})
 		response = app.test_client().get("/static/sample.css", headers={"Accept-Encoding": encoding})
 		return response.headers["X-Flask-Squeeze-Cache"]
 
@@ -69,8 +67,14 @@ class PersistentCacheTest(unittest.TestCase):
 			self.fail("Expected a valid persisted cache entry")
 		return entry
 
+	def write_fresh_cache_file(self) -> tuple[Path, bytes]:
+		"""Start from an empty cache dir holding one valid entry. Returns its file and squeezed body."""
+		shutil.rmtree(self.cache_dir, ignore_errors=True)
+		self.assertEqual(self.fetch_sample_css_cache_status(), "MISS")
+		return next(self.cache_dir.glob("*.cache")), self.read_cache_entry().squeeze_result.squeezed_body
+
 	def check_corrupt_entry_is_deleted_and_rewritten(self, expected_body: bytes) -> None:
-		app = make_sample_app(self.tmp_path, {"SQUEEZE_CACHE_DIR": self.cache_dir})
+		app = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir})
 		self.assertEqual(list(self.cache_dir.iterdir()), [])
 		response = app.test_client().get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
 		self.assertEqual(response.headers["X-Flask-Squeeze-Cache"], "MISS")
@@ -143,41 +147,40 @@ class PersistentCacheTest(unittest.TestCase):
 		self.assertEqual(StaticFileCache(self.cache_dir).get(entry.key), entry)
 		self.assertEqual(list(self.cache_dir.glob("*.meta")), [])
 
-	def test_corrupt_metadata_is_deleted_and_rewritten(self) -> None:
-		self.fetch_sample_css_cache_status()
-		cache_file = next(self.cache_dir.glob("*.cache"))
-		expected_body = self.read_cache_entry().squeeze_result.squeezed_body
-		content = cache_file.read_bytes()
-		corrupt_contents = (
-			content[:CACHE_HEADER_BYTES] + b"\xff" + content[CACHE_HEADER_BYTES + 1 :],
-			content[:CACHE_HEADER_BYTES] + b"[" + content[CACHE_HEADER_BYTES + 1 :],
-			content.replace(b'"level": 9', b'"level": true'),
-			content.replace(b'"level": 9', b'"level": -1'),
-			content.replace(b'"level": 9', b'"level": 1'),
-		)
-		for content in corrupt_contents:
-			with self.subTest(content=content):
-				cache_file.write_bytes(content)
+	def check_corruptions_are_deleted_and_rewritten(self, corruptions: Mapping[str, Callable[[bytes], bytes]]) -> None:
+		for name, corrupt in corruptions.items():
+			with self.subTest(name):
+				cache_file, expected_body = self.write_fresh_cache_file()
+				cache_file.write_bytes(corrupt(cache_file.read_bytes()))
 				self.check_corrupt_entry_is_deleted_and_rewritten(expected_body)
+
+	def test_corrupt_metadata_is_deleted_and_rewritten(self) -> None:
+		self.check_corruptions_are_deleted_and_rewritten(
+			{
+				"invalid utf-8": lambda content: replace_first_metadata_byte(content, b"\xff"),
+				"invalid json": lambda content: replace_first_metadata_byte(content, b"["),
+				"bool level": lambda content: content.replace(b'"level": 9', b'"level": true'),
+				"negative level": lambda content: content.replace(b'"level": 9', b'"level": -1'),
+				"level differs from filename": lambda content: content.replace(b'"level": 9', b'"level": 1'),
+			}
+		)
+
+	def test_incomplete_entries_are_deleted_and_rewritten(self) -> None:
+		self.check_corruptions_are_deleted_and_rewritten(
+			{
+				"empty": lambda _content: b"",
+				"magic only": lambda content: content[: len(CACHE_FORMAT_MAGIC)],
+				"header and one byte": lambda content: content[: CACHE_HEADER_BYTES + 1],
+				"last byte missing": lambda content: content[:-1],
+			}
+		)
 
 	def test_corrupt_filename_is_deleted_and_rewritten(self) -> None:
 		for level in ("²", "\N{FULLWIDTH DIGIT NINE}", "09", "10", "-1", ""):
 			with self.subTest(level=level):
-				self.fetch_sample_css_cache_status()
-				cache_file = next(self.cache_dir.glob("*.cache"))
-				expected_body = self.read_cache_entry().squeeze_result.squeezed_body
+				cache_file, expected_body = self.write_fresh_cache_file()
 				filename_stem = f"{cache_file.stem.rsplit('.', 1)[0]}.{level}"
 				cache_file.rename(self.cache_dir / f"{filename_stem}.cache")
-				self.check_corrupt_entry_is_deleted_and_rewritten(expected_body)
-
-	def test_incomplete_entries_are_deleted_and_rewritten(self) -> None:
-		self.fetch_sample_css_cache_status()
-		cache_file = next(self.cache_dir.glob("*.cache"))
-		content = cache_file.read_bytes()
-		expected_body = self.read_cache_entry().squeeze_result.squeezed_body
-		for length in (0, len(CACHE_FORMAT_MAGIC), CACHE_HEADER_BYTES + 1, len(content) - 1):
-			with self.subTest(length=length):
-				cache_file.write_bytes(content[:length])
 				self.check_corrupt_entry_is_deleted_and_rewritten(expected_body)
 
 	def test_stats_that_do_not_match_the_key_are_discarded(self) -> None:
@@ -210,11 +213,24 @@ class PersistentCacheTest(unittest.TestCase):
 				self.assertIsNone(StaticFileCache(cache_dir).get(key))
 				self.assertEqual(list(cache_dir.iterdir()), [])
 
-	def test_entry_deleted_by_another_process_is_skipped(self) -> None:
+	def test_entry_deleted_between_listing_and_reading_is_skipped(self) -> None:
 		entry = make_cache_entry("/static/sample.css", GZIP_ONLY_PLAN, b"body")
+		other_entry = make_cache_entry("/static/sample.js", GZIP_ONLY_PLAN, b"other")
 		StaticFileCache(self.cache_dir).set(entry)
-		(self.cache_dir / f"{entry.key.filename_stem}.cache").unlink()
-		self.assertIsNone(StaticFileCache(self.cache_dir).get(entry.key))
+		StaticFileCache(self.cache_dir).set(other_entry)
+		deleted_path = self.cache_dir / f"{entry.key.filename_stem}.cache"
+		read_bytes = Path.read_bytes
+
+		def read_after_other_process_deleted(path: Path) -> bytes:
+			if path == deleted_path:
+				path.unlink()
+			return read_bytes(path)
+
+		with patch.object(Path, "read_bytes", autospec=True, side_effect=read_after_other_process_deleted) as reader:
+			cache = StaticFileCache(self.cache_dir)
+		self.assertIn(deleted_path, [call.args[0] for call in reader.call_args_list])
+		self.assertIsNone(cache.get(entry.key))
+		self.assertEqual(cache.get(other_entry.key), other_entry)
 
 	def test_entry_round_trips_through_disk(self) -> None:
 		entry = make_cache_entry("/static/sample.css", GZIP_AND_MINIFY_CSS_PLAN, b"body")
@@ -235,7 +251,7 @@ class PersistentCacheTest(unittest.TestCase):
 			self.assertEqual(StaticFileCache(self.cache_dir).get(original.key), original)
 			replace_file(source, destination)
 
-		with patch("flask_squeeze.cache.os.replace", side_effect=publish) as replacement:
+		with patch.object(os, "replace", side_effect=publish) as replacement:
 			cache.set(updated)
 			replacement.assert_called_once()
 		self.assertEqual(cache.get(updated.key), updated)
@@ -251,8 +267,8 @@ class PersistentCacheTest(unittest.TestCase):
 			with self.subTest(plan=plan):
 				updated = make_cache_entry("/static/sample.css", plan, b"updated body")
 				with (
-					patch("flask_squeeze.cache.os.replace", side_effect=OSError("Replacement failed")),
-					self.assertRaises(OSError),
+					patch.object(os, "replace", side_effect=OSError("Replacement failed")),
+					self.assertRaisesRegex(OSError, "Replacement failed"),
 				):
 					cache.set(updated)
 				self.assertEqual(cache.get(original.key), original)
@@ -304,6 +320,24 @@ class PersistentCacheTest(unittest.TestCase):
 		self.assertEqual(StaticFileCache(self.cache_dir).get(entry.key), entry)
 		self.assertEqual(self.cache_file_count(), 1)
 		self.assertEqual(list(self.cache_dir.glob("*.tmp")), [])
+
+
+class InMemoryCacheTest(unittest.TestCase):
+	def test_variant_replaces_the_other_variant_of_its_encoding(self) -> None:
+		cache = StaticFileCache(None)
+		plain = make_cache_entry("/static/sample.css", GZIP_ONLY_PLAN, b"plain")
+		brotli_entry = make_cache_entry("/static/sample.css", SqueezePlan(Compression(Encoding.br, 11), None), b"br")
+		minified = make_cache_entry("/static/sample.css", GZIP_AND_MINIFY_CSS_PLAN, b"minified")
+		for entry in (plain, brotli_entry, minified):
+			cache.set(entry)
+		self.assertIsNone(cache.get(plain.key))
+		self.assertEqual(cache.get(minified.key), minified)
+		self.assertEqual(cache.get(brotli_entry.key), brotli_entry)
+
+	def test_other_paths_miss(self) -> None:
+		cache = StaticFileCache(None)
+		cache.set(make_cache_entry("/static/a.css", GZIP_ONLY_PLAN, b"a"))
+		self.assertIsNone(cache.get(CacheKey.for_request_path("/static/b.css", GZIP_ONLY_PLAN)))
 
 
 class CacheEntryTest(unittest.TestCase):
