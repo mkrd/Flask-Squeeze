@@ -18,8 +18,10 @@ jobs:
     steps:
       # MARK: Environment
 
-      - name: Install system dependencies
+      - name: Prepare job container
         run: |
+          # Podman's archive API rejects absolute symlinks in copied paths.
+          ln -sfnT ../run /var/run
           apt-get update
           apt-get install -y --no-install-recommends git nodejs just
 
@@ -74,8 +76,10 @@ jobs:
     steps:
       # MARK: Environment
 
-      - name: Install system dependencies
+      - name: Prepare job container
         run: |
+          # Podman's archive API rejects absolute symlinks in copied paths.
+          ln -sfnT ../run /var/run
           apt-get update
           apt-get install -y --no-install-recommends git nodejs
 
