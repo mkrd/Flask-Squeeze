@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from flask import Flask, Response
 from typing_extensions import override
 
 from flask_squeeze import Squeeze
@@ -17,8 +18,6 @@ from tests.sample_app import CSS, HTML, JS, decoded_body, make_sample_app
 
 if TYPE_CHECKING:
 	from collections.abc import Mapping
-
-	from flask import Flask
 
 STATUS_OK = 200
 STATUS_PARTIAL_CONTENT = 206
@@ -401,6 +400,24 @@ class ResponseContractTest(unittest.TestCase):
 
 	####################################################################################
 	#### MARK: Config
+
+	def test_deferred_init_squeezes_responses(self) -> None:
+		squeeze = Squeeze()
+		app = Flask(__name__)
+		app.config.update(SQUEEZE_MIN_SIZE=0, SQUEEZE_INFO_HEADERS=True)
+
+		@app.get("/dynamic.css")
+		def dynamic_css() -> Response:
+			return Response(CSS, mimetype="text/css")
+
+		self.assertNotIn("squeeze", app.extensions)
+		squeeze.init_app(app)
+		response = app.test_client().get("/dynamic.css", headers={"Accept-Encoding": "gzip"})
+		self.assertEqual(response.status_code, STATUS_OK)
+		self.assertEqual(response.headers["Content-Encoding"], "gzip")
+		self.assertEqual(decoded_body(response), MINIFIED_CSS)
+		self.assertIn("X-Flask-Squeeze-Minify", response.headers)
+		self.assertIn("X-Flask-Squeeze-Compress", response.headers)
 
 	def test_invalid_config_fails_at_init(self) -> None:
 		cases: list[tuple[dict[str, object], type[Exception]]] = [

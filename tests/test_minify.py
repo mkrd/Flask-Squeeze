@@ -1,10 +1,25 @@
 import unittest
 from pathlib import Path
 
-from flask_squeeze.minify import minify_css, minify_html, minify_js
+from flask_squeeze.minify import minify, minify_css, minify_html, minify_js
+from flask_squeeze.plan import Minification
 
 
 class MinifyTest(unittest.TestCase):
+	def test_empty_minified_body_has_finite_stats(self) -> None:
+		cases = (
+			(Minification.html, b"<!-- comment -->"),
+			(Minification.css, b"/* comment */"),
+			(Minification.js, b"// comment\n"),
+		)
+		for minification, comment in cases:
+			for source in (b"", comment):
+				with self.subTest(minification=minification, source=source):
+					body, stats = minify(source, minification)
+					self.assertEqual(body, b"")
+					self.assertEqual(stats.size_ratio, 1.0)
+					self.assertIn("ratio=1.0x", stats.info_headers["X-Flask-Squeeze-Minify"])
+
 	def test_minify_html_preserves_whitespace_sensitive_content(self) -> None:
 		source = (
 			b"<!DOCTYPE html><html><head><style>.box { color: red; }</style></head>"
