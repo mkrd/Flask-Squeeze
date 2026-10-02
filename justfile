@@ -1,37 +1,53 @@
 set dotenv-load := true
 
-# @ means: surpress printing the executed command
-
 default:
-    @just --list
-
-alias r := run-test-app
-
-# Run test app
-run-test-app:
-    export FLASK_DEBUG=1
-    export PYTHONDONTWRITEBYTECODE=1
-    cd tests && uv run flask --app "test_app:create_app()" run --host=localhost --port=5002 --debug --reload
+    @just --list # @ suppresses printing the executed command
 
 
-ruff:
-    uv run ruff check
-
-alias m := mypy
-mypy:
-    uv run mypy .
-
-alias t := test
-test:
-	uv run pytest -p no:cacheprovider --capture=no --cov-report=term-missing --cov=flask_squeeze tests
+# MARK: Project
 
 
-alias c := check
-check: ruff mypy test
+alias o := outdated
+outdated:
+	uv tree --outdated --depth 1
 
+alias up := upgrade
+upgrade:
+	uv lock --upgrade
+	uv sync
 
 publish:
     uv build
     uv publish
     rm -rf dist
-    rm -rf flask_squeeze.egg-info
+
+
+# MARK: Code Quality
+
+
+ruff-check:
+	uv run ruff check .
+
+ruff-format:
+	uv run ruff format --check .
+	uv run ruff format .
+
+alias r := ruff
+ruff:
+	@just ruff-check
+	@just ruff-format
+
+alias tc := typecheck
+typecheck:
+	uv run pyrefly check . --no-progress-bar
+
+alias t := test
+test:
+	uv run coverage run -m unittest discover
+	uv run coverage report
+
+alias c := check
+check:
+	@just ruff
+	@just typecheck
+	@just test

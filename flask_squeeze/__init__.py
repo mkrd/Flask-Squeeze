@@ -1,3 +1,3 @@
-from .flask_squeeze import Squeeze
+from .extension import Squeeze
 
 __all__ = ["Squeeze"]

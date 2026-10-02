@@ -58,15 +58,17 @@ jobs:
       - name: 🔎 Ruff format checks
         run: uv run ruff format --check .
 
-      - name: 🐍 Mypy Static Type Checker
-        run: uv run mypy .
+      - name: 🔎 Pyrefly Static Type Checker
+        run: uv run pyrefly check . --no-progress-bar
 
       #----------------------------------------------
       #---- Run tests with coverage report
       #----------------------------------------------
 
       - name: 🚀 Run tests with code coverage report
-        run: uv run pytest --cov=flask_squeeze --cov-report term-missing
+        run: |
+          uv run coverage run -m unittest discover --start-directory tests --top-level-directory .
+          uv run coverage report --show-missing
 
       #----------------------------------------------
       #---- Save coverage artifact
