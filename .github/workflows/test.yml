@@ -81,7 +81,7 @@ jobs:
           name: coverage-${{ matrix.python-version }}
           include-hidden-files: true
           if-no-files-found: error
-          path: ".coverage"
+          path: ".cache/coverage"
 
   # JOB: Coverage Badge
   cov-badge-job:
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: coverage-3.12
-          path: .
+          path: .cache
 
 
       #----------------------------------------------
