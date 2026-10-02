@@ -82,8 +82,12 @@ split-on-trailing-comma = false # If imports fit in one line format them in one 
 
 
 [tool.pyrefly]
-preset = "strict"
+python-version = "3.11"
 min-severity = "warn"
+preset = "strict"
+
+[tool.pyrefly.errors]
+implicit-any-lambda = "ignore"
 
 
 ##########################################################################################
@@ -91,6 +95,8 @@ min-severity = "warn"
 
 
 [tool.coverage.run]
+branch = true
+data_file = ".cache/coverage"
 source = ["flask_squeeze"]
 
 [tool.coverage.report]
