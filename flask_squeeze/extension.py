@@ -11,7 +11,7 @@ from flask import request
 
 from .cache import CacheEntry, CacheKey, StaticFileCache
 from .config import SqueezeConfig
-from .negotiate import choose_encoding
+from .negotiate import negotiate_encoding
 from .plan import Compression, Minification, ResourceType, SqueezePlan
 from .squeeze import SqueezeResult, apply_squeeze_plan
 
@@ -58,12 +58,12 @@ def resource_type_for_endpoint(endpoint: str | None) -> ResourceType:
 
 def plan_squeeze(
 	config: SqueezeConfig,
-	accept_encoding: str | None,
+	accept_encoding_header: str | None,
 	mimetype: str | None,
 	resource_type: ResourceType,
 ) -> SqueezePlan | None:
 	"""Return what to do with a squeezable response, or None if nothing applies."""
-	encoding = choose_encoding(accept_encoding) if config.compression_enabled else None
+	encoding = negotiate_encoding(accept_encoding_header) if config.compression_enabled else None
 	minification = Minification.for_mimetype(mimetype)
 	if minification not in config.enabled_minifications:
 		minification = None
