@@ -1,137 +1,309 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import json
+import math
+import os
+import tempfile
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from threading import Lock
+from typing import TypeVar
 
-if TYPE_CHECKING:
-	from pathlib import Path
+from .compress import CompressionStats
+from .minify import MinificationStats
+from .plan import Compression, Encoding, Minification, SqueezePlan
+from .squeeze import SqueezeResult
 
-	from .models import Encoding, Minification
+FILENAME_PART_COUNT = 4
+CACHE_FORMAT_MAGIC = b"FSQ1"
+METADATA_LENGTH_BYTES = 4
+CACHE_HEADER_BYTES = len(CACHE_FORMAT_MAGIC) + METADATA_LENGTH_BYTES
+NOT_APPLIED_MARKER = "none"
+"""Filename part for a step (compression or minification) the plan does not apply"""
 
-METADATA_LINE_COUNT = 2
+JsonFieldT = TypeVar("JsonFieldT")
+
+CacheSlot = tuple[str, Encoding | None]
+"""Request path hash and encoding. A slot holds one entry: the variant of the current config."""
 
 
 ########################################################################################
-#### MARK: Disk utils
+#### MARK: Key and entry
 
 
-def _save_cache_entry_to_disk(
-	cache_dir: Path,
-	cache_key: CacheKey,
-	original_hash: str,
-	data: bytes,
-) -> None:
-	with (cache_dir / f"{cache_key.normalized}.cache").open("wb") as f:
-		f.write(data)
+@dataclass(frozen=True)
+class CacheKey:
+	request_path_hash: str
+	plan: SqueezePlan
 
-	with (cache_dir / f"{cache_key.normalized}.meta").open("w") as f:
-		f.write(f"{original_hash}\n{hashlib.sha256(data).hexdigest()}\n")
+	@classmethod
+	def for_request_path(cls, request_path: str, plan: SqueezePlan) -> CacheKey:
+		return cls(hashlib.sha256(request_path.encode("utf-8")).hexdigest(), plan)
+
+	@classmethod
+	def from_filename_stem(cls, filename_stem: str) -> CacheKey | None:
+		"""Inverse of `filename_stem`. Returns None for names this version did not write."""
+		parts = filename_stem.split(".")
+		if len(parts) != FILENAME_PART_COUNT:
+			return None
+		request_path_hash, encoding, minification, level = parts
+		known_encodings = {e.value for e in Encoding} | {NOT_APPLIED_MARKER}
+		known_minifications = {m.value for m in Minification} | {NOT_APPLIED_MARKER}
+		if encoding not in known_encodings or minification not in known_minifications:
+			return None
+		if encoding == NOT_APPLIED_MARKER and minification == NOT_APPLIED_MARKER:
+			return None
+		if (encoding == NOT_APPLIED_MARKER) != (level == NOT_APPLIED_MARKER):
+			return None
+		compression = None
+		if encoding != NOT_APPLIED_MARKER:
+			selected_encoding = Encoding(encoding)
+			if level not in {str(valid_level) for valid_level in range(selected_encoding.max_level + 1)}:
+				return None
+			compression = Compression(selected_encoding, int(level))
+		plan = SqueezePlan(
+			compression=compression,
+			minification=None if minification == NOT_APPLIED_MARKER else Minification(minification),
+		)
+		return cls(request_path_hash, plan)
+
+	@property
+	def filename_stem(self) -> str:
+		compression = self.plan.compression
+		encoding = compression.encoding.value if compression else NOT_APPLIED_MARKER
+		level = str(compression.level) if compression else NOT_APPLIED_MARKER
+		minification = self.plan.minification.value if self.plan.minification else NOT_APPLIED_MARKER
+		return f"{self.request_path_hash}.{encoding}.{minification}.{level}"
+
+	@property
+	def slot(self) -> CacheSlot:
+		return self.request_path_hash, self.plan.compression.encoding if self.plan.compression else None
 
 
-def _read_cache_data_from_disk(cache_dir: Path) -> dict[str, tuple[str, bytes]]:
-	data: dict[str, tuple[str, bytes]] = {}
+@dataclass(frozen=True)
+class CacheEntry:
+	key: CacheKey
+	original_body_hash: str
+	"""sha256 of the response body before squeezing"""
+	squeeze_result: SqueezeResult
 
-	for meta_file in cache_dir.glob("*.meta"):
-		cache_key = meta_file.stem
-		cache_file = meta_file.with_suffix(".cache")
-		with meta_file.open() as f:
-			metadata = f.read().splitlines()
-		if len(metadata) != METADATA_LINE_COUNT:
-			meta_file.unlink()
-			cache_file.unlink(missing_ok=True)
+	def __post_init__(self) -> None:
+		plan = self.key.plan
+		result = self.squeeze_result
+		if (result.minification_stats is None) != (plan.minification is None):
+			msg = "Minification statistics must match the cache key's plan"
+			raise ValueError(msg)
+		if (result.compression_stats is None) != (plan.compression is None):
+			msg = "Compression statistics must match the cache key's plan"
+			raise ValueError(msg)
+		if (
+			result.compression_stats is not None
+			and plan.compression is not None
+			and result.compression_stats.level != plan.compression.level
+		):
+			msg = "Compression level must match the cache key's plan"
+			raise ValueError(msg)
+
+	def to_bytes(self) -> bytes:
+		body = self.squeeze_result.squeezed_body
+		metadata = CacheMetadata(
+			original_body_hash=self.original_body_hash,
+			squeezed_body_hash=hashlib.sha256(body).hexdigest(),
+			minification_stats=self.squeeze_result.minification_stats,
+			compression_stats=self.squeeze_result.compression_stats,
+		)
+		metadata_bytes = metadata.to_json().encode("utf-8")
+		return CACHE_FORMAT_MAGIC + len(metadata_bytes).to_bytes(METADATA_LENGTH_BYTES, "big") + metadata_bytes + body
+
+	@classmethod
+	def from_bytes(cls, filename_stem: str, content: bytes) -> CacheEntry | None:
+		"""Reject incompatible, incomplete, or corrupted cache files."""
+		if len(content) < CACHE_HEADER_BYTES or not content.startswith(CACHE_FORMAT_MAGIC):
+			return None
+		metadata_length = int.from_bytes(content[len(CACHE_FORMAT_MAGIC) : CACHE_HEADER_BYTES], "big")
+		body_offset = CACHE_HEADER_BYTES + metadata_length
+		if body_offset > len(content):
+			return None
+		try:
+			metadata_json = content[CACHE_HEADER_BYTES:body_offset].decode("utf-8")
+		except UnicodeDecodeError:
+			return None
+		return cls._from_metadata(filename_stem, metadata_json, content[body_offset:])
+
+	@classmethod
+	def _from_metadata(cls, filename_stem: str, metadata_json: str, body: bytes) -> CacheEntry | None:
+		key = CacheKey.from_filename_stem(filename_stem)
+		metadata = CacheMetadata.from_json(metadata_json)
+		if key is None or metadata is None:
+			return None
+		if hashlib.sha256(body).hexdigest() != metadata.squeezed_body_hash:
+			return None
+		result = SqueezeResult(body, metadata.minification_stats, metadata.compression_stats)
+		try:
+			return cls(key, metadata.original_body_hash, result)
+		except ValueError:
+			return None
+
+
+########################################################################################
+#### MARK: Metadata
+
+
+class InvalidMetadataError(Exception):
+	"""The cache metadata was not written by this version."""
+
+
+def _required_json_field(json_object: object, key: str, field_type: type[JsonFieldT]) -> JsonFieldT:
+	value = _optional_json_field(json_object, key, field_type)
+	if value is None:
+		raise InvalidMetadataError(key)
+	return value
+
+
+def _optional_json_field(json_object: object, key: str, field_type: type[JsonFieldT]) -> JsonFieldT | None:
+	if not isinstance(json_object, dict):
+		raise InvalidMetadataError(key)
+	value = json_object.get(key)
+	if value is not None and not isinstance(value, field_type):
+		raise InvalidMetadataError(key)
+	return value
+
+
+def _required_json_level(json_object: object) -> int:
+	key = "level"
+	level = _required_json_field(json_object, key, int)
+	if isinstance(level, bool) or level < 0:
+		raise InvalidMetadataError(key)
+	return level
+
+
+def _required_json_statistic(json_object: object, key: str) -> float:
+	value = _required_json_field(json_object, key, float)
+	if not math.isfinite(value) or value < 0:
+		raise InvalidMetadataError(key)
+	return value
+
+
+@dataclass(frozen=True)
+class CacheMetadata:
+	"""JSON metadata preceding the squeezed body in a cache file."""
+
+	original_body_hash: str
+	squeezed_body_hash: str
+	minification_stats: MinificationStats | None
+	compression_stats: CompressionStats | None
+
+	def to_json(self) -> str:
+		return json.dumps(dataclasses.asdict(self))
+
+	@classmethod
+	def from_json(cls, text: str) -> CacheMetadata | None:
+		"""Inverse of `to_json`. Returns None for content this version did not write."""
+		try:
+			metadata: object = json.loads(text)
+		except (ValueError, RecursionError):
+			return None
+		try:
+			minification = _optional_json_field(metadata, "minification_stats", dict)
+			compression = _optional_json_field(metadata, "compression_stats", dict)
+			return cls(
+				original_body_hash=_required_json_field(metadata, "original_body_hash", str),
+				squeezed_body_hash=_required_json_field(metadata, "squeezed_body_hash", str),
+				minification_stats=None
+				if minification is None
+				else MinificationStats(
+					duration_seconds=_required_json_statistic(minification, "duration_seconds"),
+					size_ratio=_required_json_statistic(minification, "size_ratio"),
+				),
+				compression_stats=None
+				if compression is None
+				else CompressionStats(
+					level=_required_json_level(compression),
+					duration_seconds=_required_json_statistic(compression, "duration_seconds"),
+					size_ratio=_required_json_statistic(compression, "size_ratio"),
+				),
+			)
+		except InvalidMetadataError:
+			return None
+
+
+########################################################################################
+#### MARK: Disk
+
+
+def _write_entry_to_disk(path: Path, content: bytes) -> None:
+	file_descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+	temporary_path = Path(temporary_name)
+	try:
+		with os.fdopen(file_descriptor, "wb") as temporary_file:
+			temporary_file.write(content)
+		temporary_path.replace(path)
+	finally:
+		temporary_path.unlink(missing_ok=True)
+
+
+def _delete_entry_files(cache_dir: Path, filename_stem: str) -> None:
+	for suffix in (".meta", ".cache"):
+		(cache_dir / f"{filename_stem}{suffix}").unlink(missing_ok=True)
+
+
+def _load_entries_from_disk(cache_dir: Path) -> list[CacheEntry]:
+	entries: list[CacheEntry] = []
+	for cache_file in cache_dir.glob("*.cache"):
+		try:
+			content = cache_file.read_bytes()
+		except FileNotFoundError:
 			continue
-		original_hash, cached_hash = metadata
-
-		if cache_file.exists():
-			with cache_file.open("rb") as f:
-				cached_bytes = f.read()
-			if hashlib.sha256(cached_bytes).hexdigest() != cached_hash:
-				meta_file.unlink()
-				cache_file.unlink()
-				continue
-
-			data[cache_key] = (original_hash, cached_bytes)
-		else:
-			meta_file.unlink()
-
-	return data
+		entry = CacheEntry.from_bytes(cache_file.stem, content)
+		if entry is None:
+			_delete_entry_files(cache_dir, cache_file.stem)
+			continue
+		entries.append(entry)
+	for meta_file in cache_dir.glob("*.meta"):
+		meta_file.unlink(missing_ok=True)
+	return entries
 
 
 ########################################################################################
 #### MARK: Cache
 
 
-def _variant_group(normalized: str) -> str:
-	"""Return the "{path_hash}.{encoding}" prefix shared by all variants of one (path, encoding)."""
-	return ".".join(normalized.split(".")[:-2])
+class StaticFileCache:
+	"""Thread-safe cache of squeezed static files, optionally persisted to `cache_dir`."""
 
+	def __init__(self, cache_dir: Path | None) -> None:
+		self._cache_dir = cache_dir
+		self._entries_by_slot: dict[CacheSlot, CacheEntry] = {}
+		self._lock = Lock()
 
-@dataclass(frozen=True)
-class CacheKey:
-	path: str
-	encoding: Encoding | None
-	minification: Minification | None
-	quality: int | None
+		if cache_dir is None:
+			return
+		cache_dir.mkdir(parents=True, exist_ok=True)
+		for entry in _load_entries_from_disk(cache_dir):
+			if entry.key.slot in self._entries_by_slot:
+				_delete_entry_files(cache_dir, entry.key.filename_stem)
+				continue
+			self._entries_by_slot[entry.key.slot] = entry
 
-	@property
-	def path_hash(self) -> str:
-		return hashlib.sha256(self.path.encode("utf-8")).hexdigest()
+	def get(self, key: CacheKey) -> CacheEntry | None:
+		with self._lock:
+			entry = self._entries_by_slot.get(key.slot)
+			if entry is None or entry.key != key:
+				return None
+			return entry
 
-	@property
-	def normalized(self) -> str:
-		encoding = self.encoding.value if self.encoding else "none"
-		minification = self.minification.value if self.minification else "none"
-		quality = str(self.quality) if self.quality is not None else "none"
-		return f"{self.path_hash}.{encoding}.{minification}.{quality}"
-
-
-@dataclass(frozen=True)
-class CachedData:
-	original_hash: str
-	data: bytes
-
-
-@dataclass
-class Cache:
-	data: dict[str, tuple[str, bytes]]
-	""" Maps request path to original data hash and compressed bytes """
-
-	cache_dir: Path | None = None
-	""" Directory to store persistent cache files """
-
-	def __post_init__(self) -> None:
-		"""Initialize cache directory if specified."""
-		if self.cache_dir is not None:
-			self.cache_dir.mkdir(parents=True, exist_ok=True)
-			self.data.update(_read_cache_data_from_disk(self.cache_dir))
-
-	def get(self, cache_key: CacheKey) -> CachedData | None:
-		"""Get the cached hash and data for a given cache key."""
-
-		if cache_key.normalized not in self.data:
-			return None
-
-		original_hash, data = self.data[cache_key.normalized]
-		return CachedData(original_hash, data)
-
-	def set(self, cache_key: CacheKey, original_hash: str, data: bytes) -> None:
-		"""Set the cached data, removing any other variant of the same (path, encoding)."""
-
-		new_key = cache_key.normalized
-
-		for key in [k for k in self.data if _variant_group(k) == _variant_group(new_key)]:
-			self._remove(key)
-
-		self.data[new_key] = (original_hash, data)
-
-		# Save to disk if persistent caching is enabled
-		if self.cache_dir is not None:
-			_save_cache_entry_to_disk(self.cache_dir, cache_key, original_hash, data)
-
-	def _remove(self, key: str) -> None:
-		"""Remove an entry from memory and disk."""
-		self.data.pop(key, None)
-		if self.cache_dir is not None:
-			for suffix in (".meta", ".cache"):
-				(self.cache_dir / f"{key}{suffix}").unlink(missing_ok=True)
+	def set(self, entry: CacheEntry) -> None:
+		"""Store the entry, replacing the entry of another variant in its slot."""
+		with self._lock:
+			if self._cache_dir is None:
+				self._entries_by_slot[entry.key.slot] = entry
+				return
+			content = entry.to_bytes()
+			path = self._cache_dir / f"{entry.key.filename_stem}.cache"
+			_write_entry_to_disk(path, content)
+			previous_entry = self._entries_by_slot.get(entry.key.slot)
+			if previous_entry is not None and previous_entry.key != entry.key:
+				_delete_entry_files(self._cache_dir, previous_entry.key.filename_stem)
+			self._entries_by_slot[entry.key.slot] = entry

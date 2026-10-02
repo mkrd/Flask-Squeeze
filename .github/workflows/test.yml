@@ -9,7 +9,10 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
       #----------------------------------------------
@@ -40,8 +43,10 @@ jobs:
 
       - name: uv --version
         run: uv --version
-      - name: uv run python --version
-        run: uv run python --version
+      - name: Verify Python version
+        run: |
+          uv run python --version
+          test "$(uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "$UV_PYTHON"
       - name: ls -lah
         run: ls -lah
       - name: uv tree
@@ -58,15 +63,17 @@ jobs:
       - name: 🔎 Ruff format checks
         run: uv run ruff format --check .
 
-      - name: 🐍 Mypy Static Type Checker
-        run: uv run mypy .
+      - name: 🔎 Pyrefly Static Type Checker
+        run: uv run pyrefly check . --no-progress-bar
 
       #----------------------------------------------
       #---- Run tests with coverage report
       #----------------------------------------------
 
       - name: 🚀 Run tests with code coverage report
-        run: uv run pytest --cov=flask_squeeze --cov-report term-missing
+        run: |
+          uv run coverage run -m unittest discover --start-directory tests --top-level-directory .
+          uv run coverage report --show-missing
 
       #----------------------------------------------
       #---- Save coverage artifact
@@ -79,7 +86,7 @@ jobs:
           name: coverage-${{ matrix.python-version }}
           include-hidden-files: true
           if-no-files-found: error
-          path: ".coverage"
+          path: ".cache/coverage"
 
   # JOB: Coverage Badge
   cov-badge-job:
@@ -95,7 +102,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: coverage-3.12
-          path: .
+          path: .cache
 
 
       #----------------------------------------------
