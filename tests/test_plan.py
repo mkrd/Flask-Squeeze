@@ -7,6 +7,7 @@ from flask import Config
 
 from flask_squeeze.config import SqueezeConfig
 from flask_squeeze.extension import plan_squeeze, resource_type_for_endpoint
+from flask_squeeze.negotiate import negotiate_encoding
 from flask_squeeze.plan import Compression, Encoding, Minification, ResourceType, SqueezePlan
 from flask_squeeze.squeeze import apply_squeeze_plan
 from tests.sample_app import CSS, MINIFIED_CSS, decompress
@@ -102,7 +103,9 @@ class PlanSqueezeTest(unittest.TestCase):
 	def test_plan_squeeze(self) -> None:
 		for case in PLAN_CASES:
 			with self.subTest(case.name):
-				plan = plan_squeeze(case.config, case.accept_encoding, case.mimetype, case.charset, case.resource_type)
+				negotiated = negotiate_encoding(case.accept_encoding)
+				encoding = negotiated if isinstance(negotiated, Encoding) else None
+				plan = plan_squeeze(case.config, encoding, case.mimetype, case.charset, case.resource_type)
 				self.assertEqual(plan, case.expected)
 
 	def test_resource_type_for_endpoint(self) -> None:
@@ -122,16 +125,6 @@ class SqueezePlanTest(unittest.TestCase):
 	def test_plan_needs_compression_or_minification(self) -> None:
 		with self.assertRaisesRegex(ValueError, "needs a compression, a minification, or both"):
 			SqueezePlan(None, None)
-
-	def test_etag_suffix_names_each_applied_step(self) -> None:
-		cases = [
-			(SqueezePlan(Compression(Encoding.br, 11), Minification.css), "mincss-br11"),
-			(SqueezePlan(Compression(Encoding.gzip, 0), None), "gzip0"),
-			(SqueezePlan(None, Minification.js), "minjs"),
-		]
-		for plan, expected in cases:
-			with self.subTest(plan=plan):
-				self.assertEqual(plan.etag_suffix, expected)
 
 	def test_minification_for_mimetype(self) -> None:
 		cases = [
@@ -169,3 +162,14 @@ class ApplySqueezePlanTest(unittest.TestCase):
 		compressed = apply_squeeze_plan(CSS, SqueezePlan(Compression(Encoding.br, 5), None))
 		self.assertEqual(decompress(compressed.squeezed_body, Encoding.br), CSS)
 		self.assertIsNone(compressed.minification_stats)
+
+
+class CompressionPlanTest(unittest.TestCase):
+	def test_invalid_levels_fail_at_construction(self) -> None:
+		for encoding in Encoding:
+			for level in (-1, encoding.max_level + 1):
+				with self.subTest(encoding=encoding, level=level), self.assertRaises(ValueError):
+					Compression(encoding, level)
+			for level in (True, False):
+				with self.subTest(encoding=encoding, level=level), self.assertRaises(TypeError):
+					Compression(encoding, level)

@@ -12,10 +12,24 @@ from turbohtml.clean import minify_js as minify_javascript
 from .plan import Minification
 
 JS_OPTIONS = JSMinify(mangle=False, fold=False)
-HTML_OPTIONS = Minify(minify_css=CSSMinify(), minify_js=JS_OPTIONS)
+CSS_OPTIONS = CSSMinify()
+HTML_OPTIONS = Minify(minify_css=CSS_OPTIONS, minify_js=JS_OPTIONS)
 HTML_LAYOUT = Html(layout=HTML_OPTIONS)
 HTML_WHITESPACE = " \t\n\f\r"
 DOCUMENT_TAGS = frozenset({"html", "head", "body"})
+
+
+def minification_options_signature() -> tuple[str, ...]:
+	return (
+		repr(JS_OPTIONS),
+		repr(CSS_OPTIONS),
+		str(HTML_OPTIONS.collapse_whitespace),
+		str(HTML_OPTIONS.omit_optional_tags),
+		str(HTML_OPTIONS.unquote_attributes),
+		str(HTML_OPTIONS.strip_comments),
+		repr(HTML_OPTIONS.minify_js),
+		repr(HTML_OPTIONS.minify_css),
+	)
 
 
 @dataclass(frozen=True)
@@ -56,7 +70,7 @@ def minify_html(html: str) -> str:
 
 
 def minify_css(css: str) -> str:
-	return minify_stylesheet(css)
+	return minify_stylesheet(css, CSS_OPTIONS)
 
 
 def minify_js(js: str) -> str:

@@ -16,20 +16,32 @@ Responses of the app's and blueprints' `static` endpoints are static, all others
 
 ### What gets squeezed
 A response is left untouched if any of these hold:
-- Its status is not 2xx, or it is 204, 205, or 206 (range responses are served as is)
+- Its status is not 2xx, or it is 204, 205, or 206 (range responses are served as is). Conditional 304 and 412 responses from `send_file` are re-evaluated against the squeezed representation when its file body and ETag are available.
 - Its length is unknown, e.g. a streamed response
 - It is smaller than `SQUEEZE_MIN_SIZE`
 - It already has a `Content-Encoding`
+- File delivery is offloaded through `X-Sendfile`
+- It carries integrity metadata (`Content-Digest`, `Repr-Digest`, `Content-MD5`, `Digest`, `Signature`, or `Signature-Input`)
+- It is a dynamic response with an application-provided ETag, except files served through `send_file`
 
-Squeezed responses get their own ETag per variant (original ETag plus a suffix such as `-minjs-br11`),
-and their `Accept-Ranges` header is removed, since byte ranges refer to the original file.
-Conditional requests (`If-None-Match`, `If-Modified-Since`, `If-Match`) for static files are answered
-against the variant's ETag.
+Dynamic responses with application-provided ETags keep their original body and ETag, so existing
+application conditional handling continues to work without changes to views.
+
+Encoding negotiation respects explicit `identity` preferences. When no header is supplied, responses
+stay uncompressed. Eligible responses return an empty 406 if neither a supported encoding nor identity
+is acceptable. If compression is unavailable (for example, below `SQUEEZE_MIN_SIZE` or because the
+response carries integrity metadata), a successful response also returns 406 when identity is forbidden.
+Existing error, no-content, range, and already encoded responses keep their application behavior.
+
+Squeezed responses that have an ETag get a SHA-256 ETag of the exact bytes served. Existing weak ETags
+remain weak. Their `Accept-Ranges` header is removed, since byte ranges refer to the original file.
+Conditional requests (`If-None-Match`, `If-Modified-Since`, `If-Match`) for static files and files served
+by regular routes through `send_file` are answered against the variant's ETag.
 
 ### Text encoding
 Minification only supports UTF-8. Responses that declare another charset are compressed, but not minified.
-A response that declares UTF-8, which Flask does for all text by default, but is not valid UTF-8 raises a
-`UnicodeDecodeError`. A leading byte order mark is removed when minifying.
+When no charset is declared, UTF-8 is assumed. A response that declares or assumes UTF-8 but contains
+invalid UTF-8 raises a `UnicodeDecodeError` when minified. A leading byte order mark is removed when minifying.
 
 HTML that does not start with a doctype or an `<html>`, `<head>` or `<body>` tag is minified as a fragment,
 so partial responses, such as table rows for htmx, keep all their tags.
@@ -98,6 +110,7 @@ Each disk cache entry stores metadata and squeezed bytes in one file. Writes use
 the same directory, then atomically replace the cache file. A thread lock synchronizes access within
 each cache instance; separate processes can overwrite one another without filesystem locks. Invalid
 or incompatible cache files are deleted on startup and rebuilt on the next request.
+Cache identity includes squeezing dependency versions and options, so upgrades invalidate incompatible entries.
 
 ### Info headers
 With `SQUEEZE_INFO_HEADERS` enabled, squeezed responses carry:
@@ -125,14 +138,15 @@ They expose timing data to every client, so keep them disabled in production.
 | `SQUEEZE_LEVEL_DEFLATE_STATIC` | `9` | 0-9 | Deflate level for static files |
 | `SQUEEZE_LEVEL_DEFLATE_DYNAMIC` | `1` | 0-9 | Deflate level for dynamic content |
 
-If compression and all minification options are disabled, Flask-Squeeze does not register its hook at all.
+If compression and all minification options are disabled, Flask-Squeeze does not register its hook
+or access the configured cache directory.
 
 ### Example Configuration
 ```python
 app.config.update(
 	{
 		"SQUEEZE_CACHE_DIR": "./cache/flask_squeeze/",  # Enable persistent caching
-		"SQUEEZE_MIN_SIZE": 1000,  # Only compress files > 1KB
+		"SQUEEZE_MIN_SIZE": 1000,  # Compress or minify responses of at least 1000 bytes
 	}
 )
 ```
@@ -168,6 +182,8 @@ uv sync
 uv run playwright install chromium  # Needed once, for the browser test
 just check  # Format, lint, type check and test
 ```
+
+The browser test starts and stops its own localhost HTTP server on an available port.
 
 Start reading at `ResponseSqueezer.after_request` in `flask_squeeze/extension.py`.
 

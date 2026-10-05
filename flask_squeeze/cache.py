@@ -7,6 +7,7 @@ import math
 import os
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from threading import Lock
 from typing import TypeVar
@@ -14,9 +15,9 @@ from typing import TypeVar
 from .compress import CompressionStats
 from .minify import MinificationStats
 from .plan import Compression, Encoding, Minification, SqueezePlan
-from .squeeze import SqueezeResult
+from .squeeze import SQUEEZE_FINGERPRINT, SqueezeResult, apply_squeeze_plan
 
-FILENAME_PART_COUNT = 4
+FILENAME_PART_COUNT = 5
 CACHE_FORMAT_MAGIC = b"FSQ1"
 METADATA_LENGTH_BYTES = 4
 CACHE_HEADER_BYTES = len(CACHE_FORMAT_MAGIC) + METADATA_LENGTH_BYTES
@@ -33,14 +34,26 @@ CacheSlot = tuple[str, Encoding | None]
 #### MARK: Key and entry
 
 
+def _compression_from_filename(encoding: Encoding, level: str) -> Compression:
+	if not level.isascii() or not level.isdecimal() or len(level) > len(str(encoding.max_level)):
+		msg = "Invalid compression level in cache filename"
+		raise ValueError(msg)
+	parsed_level = int(level)
+	if str(parsed_level) != level:
+		msg = "Noncanonical compression level in cache filename"
+		raise ValueError(msg)
+	return Compression(encoding, parsed_level)
+
+
 @dataclass(frozen=True)
 class CacheKey:
 	request_path_hash: str
 	plan: SqueezePlan
+	squeeze_fingerprint: str
 
 	@classmethod
 	def for_request_path(cls, request_path: str, plan: SqueezePlan) -> CacheKey:
-		return cls(hashlib.sha256(request_path.encode("utf-8")).hexdigest(), plan)
+		return cls(hashlib.sha256(request_path.encode("utf-8")).hexdigest(), plan, SQUEEZE_FINGERPRINT)
 
 	@classmethod
 	def from_filename_stem(cls, filename_stem: str) -> CacheKey | None:
@@ -48,10 +61,14 @@ class CacheKey:
 		parts = filename_stem.split(".")
 		if len(parts) != FILENAME_PART_COUNT:
 			return None
-		request_path_hash, encoding, minification, level = parts
+		request_path_hash, squeeze_fingerprint, encoding, minification, level = parts
 		known_encodings = {e.value for e in Encoding} | {NOT_APPLIED_MARKER}
 		known_minifications = {m.value for m in Minification} | {NOT_APPLIED_MARKER}
-		if encoding not in known_encodings or minification not in known_minifications:
+		if (
+			squeeze_fingerprint != SQUEEZE_FINGERPRINT
+			or encoding not in known_encodings
+			or minification not in known_minifications
+		):
 			return None
 		if encoding == NOT_APPLIED_MARKER and minification == NOT_APPLIED_MARKER:
 			return None
@@ -59,15 +76,15 @@ class CacheKey:
 			return None
 		compression = None
 		if encoding != NOT_APPLIED_MARKER:
-			selected_encoding = Encoding(encoding)
-			if level not in {str(valid_level) for valid_level in range(selected_encoding.max_level + 1)}:
+			try:
+				compression = _compression_from_filename(Encoding(encoding), level)
+			except ValueError:
 				return None
-			compression = Compression(selected_encoding, int(level))
 		plan = SqueezePlan(
 			compression=compression,
 			minification=None if minification == NOT_APPLIED_MARKER else Minification(minification),
 		)
-		return cls(request_path_hash, plan)
+		return cls(request_path_hash, plan, squeeze_fingerprint)
 
 	@property
 	def filename_stem(self) -> str:
@@ -75,7 +92,7 @@ class CacheKey:
 		encoding = compression.encoding.value if compression else NOT_APPLIED_MARKER
 		level = str(compression.level) if compression else NOT_APPLIED_MARKER
 		minification = self.plan.minification.value if self.plan.minification else NOT_APPLIED_MARKER
-		return f"{self.request_path_hash}.{encoding}.{minification}.{level}"
+		return f"{self.request_path_hash}.{self.squeeze_fingerprint}.{encoding}.{minification}.{level}"
 
 	@property
 	def slot(self) -> CacheSlot:
@@ -270,6 +287,17 @@ def _load_entries_from_disk(cache_dir: Path) -> list[CacheEntry]:
 #### MARK: Cache
 
 
+class CacheStatus(Enum):
+	hit = "HIT"
+	miss = "MISS"
+
+
+@dataclass(frozen=True)
+class CachedSqueezeResult:
+	squeeze_result: SqueezeResult
+	status: CacheStatus
+
+
 class StaticFileCache:
 	"""Thread-safe cache of squeezed static files, optionally persisted to `cache_dir`."""
 
@@ -286,6 +314,16 @@ class StaticFileCache:
 				_delete_entry_files(cache_dir, entry.key.filename_stem)
 				continue
 			self._entries_by_slot[entry.key.slot] = entry
+
+	def squeeze(self, key: CacheKey, original_body: bytes) -> CachedSqueezeResult:
+		original_body_hash = hashlib.sha256(original_body).hexdigest()
+		entry = self.get(key)
+		if entry is not None and entry.original_body_hash == original_body_hash:
+			return CachedSqueezeResult(entry.squeeze_result, CacheStatus.hit)
+
+		squeeze_result = apply_squeeze_plan(original_body, key.plan)
+		self.set(CacheEntry(key, original_body_hash, squeeze_result))
+		return CachedSqueezeResult(squeeze_result, CacheStatus.miss)
 
 	def get(self, key: CacheKey) -> CacheEntry | None:
 		with self._lock:

@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from flask import request
+from flask import current_app, request
+from werkzeug.http import is_resource_modified
 
-from .cache import CacheEntry, CacheKey, StaticFileCache
+from .cache import CacheKey, CacheStatus, StaticFileCache
 from .config import SqueezeConfig
-from .negotiate import negotiate_encoding
-from .plan import Compression, Minification, ResourceType, SqueezePlan
+from .negotiate import ENCODING_PREFERENCE_ORDER, EncodingFallback, negotiate_encoding
+from .plan import Compression, Encoding, Minification, ResourceType, SqueezePlan
 from .squeeze import SqueezeResult, apply_squeeze_plan
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ CACHE_STATUS_HEADER = "X-Flask-Squeeze-Cache"
 UNTOUCHED_SUCCESS_STATUSES = (HTTPStatus.NO_CONTENT, HTTPStatus.RESET_CONTENT, HTTPStatus.PARTIAL_CONTENT)
 CONDITIONAL_ANSWER_STATUSES = (HTTPStatus.NOT_MODIFIED, HTTPStatus.PRECONDITION_FAILED)
 UTF8_CHARSETS = frozenset({"utf-8", "utf8"})
+INTEGRITY_HEADERS = ("Content-Digest", "Repr-Digest", "Content-MD5", "Digest", "Signature", "Signature-Input")
 
 
 class Squeeze:
@@ -41,7 +43,8 @@ class Squeeze:
 			raise RuntimeError(msg)
 
 		config = SqueezeConfig.from_flask_config(app.config)
-		squeezer = ResponseSqueezer(config, StaticFileCache(config.cache_dir))
+		cache_dir = config.cache_dir if config.squeezing_enabled else None
+		squeezer = ResponseSqueezer(config, StaticFileCache(cache_dir))
 		app.extensions[EXTENSION_KEY] = squeezer
 		if config.squeezing_enabled:
 			app.after_request(squeezer.after_request)
@@ -58,23 +61,31 @@ def resource_type_for_endpoint(endpoint: str | None) -> ResourceType:
 	return ResourceType.dynamic
 
 
-def is_conditional_answer_of_static_view(response: Response, resource_type: ResourceType) -> bool:
-	"""
-	The static view answers conditional requests against the original ETag, but the response
-	still holds the full body. Flask-Squeeze answers them again against the variant's ETag.
-	"""
-	return resource_type is ResourceType.static and response.status_code in CONDITIONAL_ANSWER_STATUSES
+def is_file_response(response: Response) -> bool:
+	return response.direct_passthrough and "Content-Disposition" in response.headers
+
+
+def is_conditional_file_response(response: Response) -> bool:
+	"""send_file retains the file body when it answers conditions against the original ETag."""
+	etag = response.headers.get("ETag")
+	if not is_file_response(response) or response.status_code not in CONDITIONAL_ANSWER_STATUSES or etag is None:
+		return False
+	expected_status = HTTPStatus.PRECONDITION_FAILED if request.if_match else HTTPStatus.NOT_MODIFIED
+	return response.status_code == expected_status and not is_resource_modified(
+		request.environ, etag=etag, last_modified=response.last_modified
+	)
 
 
 def plan_squeeze(
 	config: SqueezeConfig,
-	accept_encoding_header: str | None,
+	encoding: Encoding | None,
 	mimetype: str | None,
 	charset: str | None,
 	resource_type: ResourceType,
 ) -> SqueezePlan | None:
 	"""Return what to do with a squeezable response, or None if nothing applies."""
-	encoding = negotiate_encoding(accept_encoding_header) if config.compression_enabled else None
+	if not config.compression_enabled:
+		encoding = None
 	minification = Minification.for_mimetype(mimetype)
 	# Minifiers only handle UTF-8, which is assumed when no charset is declared
 	is_utf8 = charset is None or charset.lower() in UTF8_CHARSETS
@@ -116,7 +127,26 @@ class ResponseSqueezer:
 
 	def after_request(self, response: Response) -> Response:
 		resource_type = resource_type_for_endpoint(request.endpoint)
-		if not self._is_squeezable(response, resource_type):
+		can_squeeze = not self._requires_original_representation(response, resource_type) and self._is_squeezable(
+			response
+		)
+		if not can_squeeze and (
+			response.status_code not in range(200, 300)
+			or response.status_code in UNTOUCHED_SUCCESS_STATUSES
+			or "Content-Encoding" in response.headers
+		):
+			return response
+
+		available_encodings = ENCODING_PREFERENCE_ORDER if can_squeeze and self.config.compression_enabled else ()
+		negotiated = negotiate_encoding(request.headers.get("Accept-Encoding"), available_encodings=available_encodings)
+		if negotiated is EncodingFallback.not_acceptable:
+			_log_for_request("rejected, no acceptable content encoding")
+			rejected = current_app.response_class(status=HTTPStatus.NOT_ACCEPTABLE)
+			rejected.vary.update(response.vary)
+			rejected.vary.add("Accept-Encoding")
+			rejected.call_on_close(response.close)
+			return rejected
+		if not can_squeeze:
 			return response
 
 		# Vary even if this response stays uncompressed: other clients may get a compressed
@@ -126,7 +156,7 @@ class ResponseSqueezer:
 
 		plan = plan_squeeze(
 			self.config,
-			request.headers.get("Accept-Encoding"),
+			negotiated if isinstance(negotiated, Encoding) else None,
 			response.mimetype,
 			response.mimetype_params.get("charset"),
 			resource_type,
@@ -135,8 +165,8 @@ class ResponseSqueezer:
 			_log_for_request("skipped, no compression or minification applicable")
 			return response
 
-		if is_conditional_answer_of_static_view(response, resource_type):
-			_log_for_request("answering the static view's status %d again for the variant", response.status_code)
+		if is_conditional_file_response(response):
+			_log_for_request("answering the file view's status %d again for the variant", response.status_code)
 			response.status_code = HTTPStatus.OK
 
 		response.direct_passthrough = False  # Squeezing reads the whole body
@@ -151,7 +181,24 @@ class ResponseSqueezer:
 		_log_for_request("squeezed, compression=%s, minification=%s", plan.compression, plan.minification)
 		return response
 
-	def _is_squeezable(self, response: Response, resource_type: ResourceType) -> bool:
+	@staticmethod
+	def _requires_original_representation(response: Response, resource_type: ResourceType) -> bool:
+		if any(header in response.headers for header in INTEGRITY_HEADERS):
+			_log_for_request("skipped, response carries integrity metadata")
+			return True
+		if resource_type is ResourceType.dynamic and not is_file_response(response) and "ETag" in response.headers:
+			_log_for_request("skipped, dynamic response carries an application ETag")
+			return True
+		return False
+
+	def _is_squeezable(self, response: Response) -> bool:
+		# send_file removes X-Sendfile on 304 responses, leaving an empty placeholder body.
+		if "X-Sendfile" in response.headers or (
+			is_file_response(response) and response.is_sequence and not response.response
+		):
+			_log_for_request("skipped, file delivery offloaded")
+			return False
+
 		if response.content_length is None:
 			_log_for_request("skipped, content length unknown")
 			return False
@@ -159,7 +206,7 @@ class ResponseSqueezer:
 		is_squeezable_success = (
 			response.status_code in range(200, 300) and response.status_code not in UNTOUCHED_SUCCESS_STATUSES
 		)
-		if not is_squeezable_success and not is_conditional_answer_of_static_view(response, resource_type):
+		if not is_squeezable_success and not is_conditional_file_response(response):
 			_log_for_request("skipped, status code %d", response.status_code)
 			return False
 
@@ -185,9 +232,9 @@ class ResponseSqueezer:
 		if squeeze_result.compression_stats is not None:
 			response.headers.update(squeeze_result.compression_stats.info_headers)
 
-	def _set_cache_status_header(self, response: Response, cache_status: str) -> None:
+	def _set_cache_status_header(self, response: Response, cache_status: CacheStatus) -> None:
 		if self.config.info_headers_enabled:
-			response.headers[CACHE_STATUS_HEADER] = cache_status
+			response.headers[CACHE_STATUS_HEADER] = cache_status.value
 
 	def _squeeze_dynamic_response(self, response: Response, plan: SqueezePlan) -> None:
 		self._write_squeeze_result(response, apply_squeeze_plan(response.get_data(), plan))
@@ -195,23 +242,14 @@ class ResponseSqueezer:
 			_add_breach_protection_header(response)
 
 	def _squeeze_static_response(self, response: Response, plan: SqueezePlan) -> None:
-		"""Serve from the cache while the original body is unchanged, otherwise squeeze and cache it."""
-		original_body = response.get_data()
-		original_body_hash = hashlib.sha256(original_body).hexdigest()
 		cache_key = CacheKey.for_request_path(request.path, plan)
-
-		cached_entry = self.static_cache.get(cache_key)
-		if cached_entry is not None and cached_entry.original_body_hash == original_body_hash:
+		cached_result = self.static_cache.squeeze(cache_key, response.get_data())
+		if cached_result.status is CacheStatus.hit:
 			_log_for_request("static cache hit")
-			self._write_squeeze_result(response, cached_entry.squeeze_result)
-			self._set_cache_status_header(response, "HIT")
-			return
-
-		_log_for_request("static cache miss, squeezing")
-		squeeze_result = apply_squeeze_plan(original_body, plan)
-		self._write_squeeze_result(response, squeeze_result)
-		self._set_cache_status_header(response, "MISS")
-		self.static_cache.set(CacheEntry(cache_key, original_body_hash, squeeze_result))
+		else:
+			_log_for_request("static cache miss, squeezing")
+		self._write_squeeze_result(response, cached_result.squeeze_result)
+		self._set_cache_status_header(response, cached_result.status)
 
 	####################################################################################
 	#### MARK: Headers
@@ -228,6 +266,6 @@ class ResponseSqueezer:
 		etag, is_weak = response.get_etag()
 		if etag is None:
 			return
-		response.set_etag(f"{etag}-{plan.etag_suffix}", weak=bool(is_weak))
+		response.set_etag(hashlib.sha256(response.get_data()).hexdigest(), weak=bool(is_weak))
 		# The view compared If-None-Match against the original ETag, so redo it with the new one
 		response.make_conditional(request)

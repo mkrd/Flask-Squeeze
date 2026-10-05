@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from .plan import Encoding, Minification, ResourceType
+from .plan import Compression, Encoding, Minification, ResourceType
 
 if TYPE_CHECKING:
 	from collections.abc import Mapping
@@ -23,18 +24,20 @@ def _default_compression_level(encoding: Encoding, resource_type: ResourceType) 
 			return 1
 
 
-DEFAULT_CONFIG: dict[str, object] = {
-	"SQUEEZE_COMPRESS": True,
-	"SQUEEZE_MIN_SIZE": 500,
-	"SQUEEZE_CACHE_DIR": None,
-	"SQUEEZE_INFO_HEADERS": False,
-	**{minification.enable_config_key: True for minification in Minification},
-	**{
-		encoding.level_config_key(resource_type): _default_compression_level(encoding, resource_type)
-		for encoding in Encoding
-		for resource_type in ResourceType
-	},
-}
+DEFAULT_CONFIG: Mapping[str, object] = MappingProxyType(
+	{
+		"SQUEEZE_COMPRESS": True,
+		"SQUEEZE_MIN_SIZE": 500,
+		"SQUEEZE_CACHE_DIR": None,
+		"SQUEEZE_INFO_HEADERS": False,
+		**{minification.enable_config_key: True for minification in Minification},
+		**{
+			encoding.level_config_key(resource_type): _default_compression_level(encoding, resource_type)
+			for encoding in Encoding
+			for resource_type in ResourceType
+		},
+	}
+)
 
 
 ########################################################################################
@@ -53,18 +56,25 @@ def _read_bool(config: Config, key: str) -> bool:
 	return value
 
 
-def _read_int(config: Config, key: str, minimum: int, maximum: int | None = None) -> int:
+def _read_int(config: Config, key: str, minimum: int | None = None) -> int:
 	value = _read_value_or_default(config, key)
 	if not isinstance(value, int) or isinstance(value, bool):
 		msg = f"{key} must be an int, got {value!r}"
 		raise TypeError(msg)
-	if value < minimum:
+	if minimum is not None and value < minimum:
 		msg = f"{key} must be at least {minimum}, got {value}"
 		raise ValueError(msg)
-	if maximum is not None and value > maximum:
-		msg = f"{key} must be at most {maximum}, got {value}"
-		raise ValueError(msg)
 	return value
+
+
+def _read_compression_level(config: Config, encoding: Encoding, resource_type: ResourceType) -> int:
+	key = encoding.level_config_key(resource_type)
+	level = _read_int(config, key)
+	try:
+		return Compression(encoding, level).level
+	except ValueError as error:
+		msg = f"{key}: {error}"
+		raise ValueError(msg) from error
 
 
 def _read_optional_path(config: Config, key: str) -> Path | None:
@@ -90,6 +100,13 @@ class SqueezeConfig:
 	cache_dir: Path | None
 	info_headers_enabled: bool
 
+	def __post_init__(self) -> None:
+		levels = dict(self.compression_levels)
+		for encoding in Encoding:
+			for resource_type in ResourceType:
+				Compression(encoding, levels[encoding, resource_type])
+		object.__setattr__(self, "compression_levels", MappingProxyType(levels))
+
 	@classmethod
 	def from_flask_config(cls, config: Config) -> SqueezeConfig:
 		"""Validate and parse the SQUEEZE_* keys, using the defaults for missing ones."""
@@ -99,12 +116,7 @@ class SqueezeConfig:
 			raise ValueError(msg)
 
 		compression_levels = {
-			(encoding, resource_type): _read_int(
-				config,
-				encoding.level_config_key(resource_type),
-				minimum=0,
-				maximum=encoding.max_level,
-			)
+			(encoding, resource_type): _read_compression_level(config, encoding, resource_type)
 			for encoding in Encoding
 			for resource_type in ResourceType
 		}

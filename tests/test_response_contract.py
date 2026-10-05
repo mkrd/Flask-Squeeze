@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import itertools
 import shutil
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from flask import Flask, Response, send_file
+from flask import Flask, Response, request, send_file
 
 from flask_squeeze import Squeeze
-from flask_squeeze.plan import Encoding, ResourceType
+from flask_squeeze.plan import Encoding, Minification, ResourceType
 from tests.sample_app import CSS, HTML, JS, MINIFIED_CSS, SampleAppTestCase, decoded_body, make_sample_app
 
 if TYPE_CHECKING:
@@ -158,6 +160,26 @@ class BodyAndHeadersTest(SampleAppTestCase):
 		self.assertEqual(response.data, b"firstsecond")
 		self.assertNotIn("Content-Encoding", response.headers)
 
+	def test_offloaded_files_keep_their_original_representation(self) -> None:
+		client = self.make_app({"USE_X_SENDFILE": True, "SQUEEZE_CACHE_DIR": self.cache_dir}).test_client()
+		for method in ("GET", "HEAD"):
+			with self.subTest(method=method):
+				response = client.open("/static/sample.css", method=method, headers={"Accept-Encoding": "gzip"})
+				self.assertEqual(response.data, b"")
+				self.assertEqual(response.headers["X-Sendfile"], str(self.tmp_path / "sample.css"))
+				self.assertEqual(response.content_length, len(CSS))
+				self.assertNotIn("Content-Encoding", response.headers)
+				self.assertNotIn("Vary", response.headers)
+				for header in INFO_HEADER_NAMES:
+					self.assertNotIn(header, response.headers)
+
+		etag = client.get("/static/sample.css").headers["ETag"]
+		revalidated = client.get("/static/sample.css", headers={"Accept-Encoding": "gzip", "If-None-Match": etag})
+		self.assertEqual(revalidated.status_code, HTTPStatus.NOT_MODIFIED)
+		self.assertEqual(revalidated.data, b"")
+		self.assertNotIn("Content-Encoding", revalidated.headers)
+		self.assertEqual(list(self.cache_dir.iterdir()), [])
+
 	def test_unsqueezable_statuses_are_untouched(self) -> None:
 		client = self.make_app().test_client()
 		statuses = (
@@ -165,6 +187,7 @@ class BodyAndHeadersTest(SampleAppTestCase):
 			HTTPStatus.RESET_CONTENT,
 			HTTPStatus.MOVED_PERMANENTLY,
 			HTTPStatus.NOT_MODIFIED,
+			HTTPStatus.PRECONDITION_FAILED,
 			HTTPStatus.NOT_FOUND,
 			HTTPStatus.INTERNAL_SERVER_ERROR,
 		)
@@ -199,6 +222,81 @@ class BodyAndHeadersTest(SampleAppTestCase):
 		response = self.make_app({"SQUEEZE_MINIFY_CSS": False}).test_client().get("/dynamic.css")
 		self.assertEqual(response.data, CSS)
 		self.assertIn("Accept-Encoding", response.headers["Vary"])
+
+	def test_explicit_identity_preference_still_allows_minification(self) -> None:
+		response = (
+			self.make_app().test_client().get("/dynamic.css", headers={"Accept-Encoding": "identity;q=1, gzip;q=0.1"})
+		)
+		self.assertEqual(response.status_code, HTTPStatus.OK)
+		self.assertEqual(response.data, MINIFIED_CSS)
+		self.assertNotIn("Content-Encoding", response.headers)
+		self.assertIn("Accept-Encoding", response.headers["Vary"])
+
+	def test_rejected_encodings_return_an_empty_406(self) -> None:
+		client = self.make_app().test_client()
+		for path, method, encoding in itertools.product(
+			("/dynamic.css", "/static/sample.css"), ("GET", "HEAD"), ("identity;q=0, *;q=0", "*;q=0")
+		):
+			with self.subTest(path=path, method=method, encoding=encoding):
+				response = client.open(path, method=method, headers={"Accept-Encoding": encoding})
+				self.assertEqual(response.status_code, HTTPStatus.NOT_ACCEPTABLE)
+				self.assertEqual(response.data, b"")
+				self.assertNotIn("Content-Encoding", response.headers)
+				self.assertNotIn("ETag", response.headers)
+				self.assertIn("Accept-Encoding", response.headers["Vary"])
+				for header in INFO_HEADER_NAMES:
+					self.assertNotIn(header, response.headers)
+
+	def test_identity_rejection_when_compression_is_unavailable(self) -> None:
+		for config in ({"SQUEEZE_COMPRESS": False}, {"SQUEEZE_MIN_SIZE": len(CSS) + 1}):
+			with self.subTest(config=config):
+				response = (
+					self.make_app(config)
+					.test_client()
+					.get("/dynamic.css", headers={"Accept-Encoding": "gzip, identity;q=0"})
+				)
+				self.assertEqual(response.status_code, HTTPStatus.NOT_ACCEPTABLE)
+				self.assertEqual(response.data, b"")
+
+	def test_integrity_metadata_preserves_original_representation(self) -> None:
+		digest = b64encode(hashlib.sha256(CSS).digest()).decode("ascii")
+		cases = (
+			("Content-Digest", f"sha-256=:{digest}:"),
+			("Repr-Digest", f"sha-256=:{digest}:"),
+			("Digest", f"sha-256={digest}"),
+			("Content-MD5", "application-provided"),
+			("Signature", "sig1=:application-provided:"),
+			("Signature-Input", 'sig1=("content-length" "vary")'),
+		)
+
+		def make_integrity_app(header: str, value: str) -> Flask:
+			app = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir})
+
+			@app.after_request
+			def add_integrity(response: Response) -> Response:
+				response.headers[header] = value
+				return response
+
+			return app
+
+		for (header, value), path, method in itertools.product(
+			cases, ("/dynamic.css", "/static/sample.css"), ("GET", "HEAD")
+		):
+			with self.subTest(header=header, path=path, method=method):
+				response = (
+					make_integrity_app(header, value)
+					.test_client()
+					.open(path, method=method, headers={"Accept-Encoding": "gzip"})
+				)
+				self.assertEqual(response.status_code, HTTPStatus.OK)
+				self.assertEqual(response.data, CSS if method == "GET" else b"")
+				self.assertEqual(response.headers[header], value)
+				self.assertEqual(response.content_length, len(CSS))
+				self.assertNotIn("Content-Encoding", response.headers)
+				self.assertNotIn("Vary", response.headers)
+				for info_header in INFO_HEADER_NAMES:
+					self.assertNotIn(info_header, response.headers)
+		self.assertEqual(list(self.cache_dir.iterdir()), [])
 
 	def test_existing_vary_is_kept(self) -> None:
 		app = self.make_app()
@@ -356,6 +454,36 @@ class InfoHeadersAndLoggingTest(SampleAppTestCase):
 
 
 class ConditionalRequestTest(SampleAppTestCase):
+	def test_explicit_file_error_statuses_are_preserved(self) -> None:
+		app = self.make_app()
+
+		@app.get("/file-status/<int:code>")
+		def file_status(code: int) -> Response:
+			response = send_file(self.tmp_path / "sample.css")
+			response.status_code = code
+			return response
+
+		client = app.test_client()
+		original_etag = (
+			self.make_app({"SQUEEZE_COMPRESS": False, "SQUEEZE_MINIFY_CSS": False})
+			.test_client()
+			.get("/static/sample.css")
+			.headers["ETag"]
+		)
+		cases: tuple[tuple[HTTPStatus, dict[str, str]], ...] = (
+			(HTTPStatus.NOT_MODIFIED, {}),
+			(HTTPStatus.PRECONDITION_FAILED, {}),
+			(HTTPStatus.NOT_MODIFIED, {"If-None-Match": '"different"'}),
+			(HTTPStatus.PRECONDITION_FAILED, {"If-Match": original_etag}),
+		)
+		for status, conditions in cases:
+			with self.subTest(status=status, conditions=conditions):
+				response = client.get(f"/file-status/{status.value}", headers={"Accept-Encoding": "gzip", **conditions})
+				self.assertEqual(response.status_code, status)
+				self.assertEqual(response.headers["ETag"], original_etag)
+				self.assertNotIn("Content-Encoding", response.headers)
+				self.assertNotIn("Vary", response.headers)
+
 	def test_range_request_is_not_squeezed(self) -> None:
 		client = self.make_app().test_client()
 		response = client.get("/static/sample.css", headers={"Accept-Encoding": "gzip", "Range": "bytes=0-3"})
@@ -407,12 +535,61 @@ class ConditionalRequestTest(SampleAppTestCase):
 
 		@app.get("/weak.css")
 		def weak_etag() -> Response:
-			response = Response(CSS, mimetype="text/css")
+			response = send_file(self.tmp_path / "sample.css")
 			response.set_etag("v1", weak=True)
 			return response
 
 		response = app.test_client().get("/weak.css", headers={"Accept-Encoding": "gzip"})
-		self.assertEqual(response.headers["ETag"], 'W/"v1-mincss-gzip1"')
+		self.assertEqual(response.get_etag(), (hashlib.sha256(response.data).hexdigest(), True))
+
+	def test_strong_etag_tracks_served_bytes_even_when_source_etag_is_unchanged(self) -> None:
+		app = self.make_app()
+		bodies = (CSS, b".box { color: blue; }")
+
+		@app.get("/versioned.css")
+		def versioned_css() -> Response:
+			return send_file(self.tmp_path / "sample.css", etag="v1")
+
+		client = app.test_client()
+		first = client.get("/versioned.css", headers={"Accept-Encoding": "gzip"})
+		(self.tmp_path / "sample.css").write_bytes(bodies[1])
+		second = client.get("/versioned.css", headers={"Accept-Encoding": "gzip"})
+		self.assertNotEqual(first.headers["ETag"], second.headers["ETag"])
+		for response in (first, second):
+			self.assertEqual(response.get_etag(), (hashlib.sha256(response.data).hexdigest(), False))
+
+	def test_dynamic_application_etags_and_conditions_are_preserved(self) -> None:
+		app = self.make_app()
+
+		@app.get("/conditional/<int:weak>.css")
+		def conditional_css(weak: int) -> Response:
+			response = Response(CSS, mimetype="text/css")
+			response.set_etag("source", weak=bool(weak))
+			response.make_conditional(request)
+			return response
+
+		client = app.test_client()
+		for weak, method in itertools.product((False, True), ("GET", "HEAD")):
+			with self.subTest(weak=weak, method=method):
+				path = f"/conditional/{int(weak)}.css"
+				full = client.open(path, method=method, headers={"Accept-Encoding": "gzip"})
+				self.assertEqual(full.status_code, HTTPStatus.OK)
+				self.assertEqual(full.get_etag(), ("source", weak))
+				self.assertEqual(full.data, CSS if method == "GET" else b"")
+				self.assertNotIn("Content-Encoding", full.headers)
+				self.assertNotIn("Vary", full.headers)
+				conditions = (
+					("If-None-Match", full.headers["ETag"], HTTPStatus.NOT_MODIFIED),
+					("If-Match", '"source"', HTTPStatus.OK),
+					("If-Match", '"different"', HTTPStatus.PRECONDITION_FAILED),
+				)
+				for header, value, status in conditions:
+					response = client.open(path, method=method, headers={"Accept-Encoding": "gzip", header: value})
+					self.assertEqual(response.status_code, status)
+					self.assertEqual(response.headers["ETag"], full.headers["ETag"])
+					self.assertNotIn("Content-Encoding", response.headers)
+					for info_header in INFO_HEADER_NAMES:
+						self.assertNotIn(info_header, response.headers)
 
 	def test_conditional_request_uses_variant_etag(self) -> None:
 		client = self.make_app().test_client()
@@ -426,27 +603,37 @@ class ConditionalRequestTest(SampleAppTestCase):
 		self.assertEqual(other_variant.status_code, HTTPStatus.OK)
 		self.assertEqual(decoded_body(other_variant), MINIFIED_CSS)
 
-	def test_static_conditional_requests_are_answered_for_the_variant(self) -> None:
-		client = self.make_app().test_client()
-		full = client.get("/static/sample.css", headers={"Accept-Encoding": "gzip"})
-		variant_etag = full.headers["ETag"]
+	def test_file_conditional_requests_are_answered_for_the_variant(self) -> None:
+		app = self.make_app()
+
+		@app.get("/download.css")
+		def download() -> Response:
+			return send_file(self.tmp_path / "sample.css")
+
+		client = app.test_client()
 		unsqueezed = self.make_app({"SQUEEZE_COMPRESS": False, "SQUEEZE_MINIFY_CSS": False}).test_client()
 		original_etag = unsqueezed.get("/static/sample.css").headers["ETag"]
-		cases = [
-			("If-Modified-Since", full.headers["Last-Modified"], HTTPStatus.NOT_MODIFIED, b""),
-			("If-None-Match", variant_etag, HTTPStatus.NOT_MODIFIED, b""),
-			("If-None-Match", "*", HTTPStatus.NOT_MODIFIED, b""),
-			("If-None-Match", original_etag, HTTPStatus.OK, MINIFIED_CSS),
-			("If-Match", variant_etag, HTTPStatus.OK, MINIFIED_CSS),
-			("If-Match", original_etag, HTTPStatus.PRECONDITION_FAILED, MINIFIED_CSS),
-		]
-		for header, value, expected_status, expected_body in cases:
-			with self.subTest(header=header, value=value):
-				response = client.get("/static/sample.css", headers={"Accept-Encoding": "gzip", header: value})
-				self.assertEqual(response.status_code, expected_status)
-				self.assertEqual(response.headers["ETag"], variant_etag)
-				self.assertIn("Accept-Encoding", response.headers["Vary"])
-				self.assertEqual(decoded_body(response), expected_body)
+		for path, method in itertools.product(("/static/sample.css", "/download.css"), ("GET", "HEAD")):
+			full = client.get(path, headers={"Accept-Encoding": "gzip"})
+			variant_etag = full.headers["ETag"]
+			cases = [
+				("If-Modified-Since", full.headers["Last-Modified"], HTTPStatus.NOT_MODIFIED, b""),
+				("If-None-Match", variant_etag, HTTPStatus.NOT_MODIFIED, b""),
+				("If-None-Match", "*", HTTPStatus.NOT_MODIFIED, b""),
+				("If-None-Match", original_etag, HTTPStatus.OK, MINIFIED_CSS),
+				("If-Match", variant_etag, HTTPStatus.OK, MINIFIED_CSS),
+				("If-Match", original_etag, HTTPStatus.PRECONDITION_FAILED, MINIFIED_CSS),
+			]
+			for header, value, expected_status, expected_body in cases:
+				with self.subTest(path=path, method=method, header=header, value=value):
+					response = client.open(path, method=method, headers={"Accept-Encoding": "gzip", header: value})
+					self.assertEqual(response.status_code, expected_status)
+					self.assertEqual(response.headers["ETag"], variant_etag)
+					self.assertIn("Accept-Encoding", response.headers["Vary"])
+					if method == "HEAD":
+						self.assertEqual(response.data, b"")
+					else:
+						self.assertEqual(decoded_body(response), expected_body)
 
 	def test_unsqueezed_static_conditional_answer_is_kept(self) -> None:
 		(self.tmp_path / "image.png").write_bytes(b"\x89PNG" + bytes(100))
@@ -528,6 +715,38 @@ class StaticCacheTest(SampleAppTestCase):
 
 
 class InitTest(SampleAppTestCase):
+	def test_disabled_squeeze_does_not_access_cache_paths(self) -> None:
+		unusable_path = self.tmp_path / "not-a-directory"
+		unusable_path.write_bytes(b"untouched")
+		for cache_dir in (unusable_path, self.cache_dir):
+			with self.subTest(cache_dir=cache_dir):
+				app = self.make_app(
+					{
+						"SQUEEZE_COMPRESS": False,
+						**{minification.enable_config_key: False for minification in Minification},
+						"SQUEEZE_CACHE_DIR": cache_dir,
+					}
+				)
+				self.assertIn("squeeze", app.extensions)
+				self.assertEqual(app.after_request_funcs[None], [])
+				with self.assertRaisesRegex(RuntimeError, "already initialized"):
+					Squeeze(app)
+		self.assertEqual(unusable_path.read_bytes(), b"untouched")
+		self.assertFalse(self.cache_dir.exists())
+
+	def test_disabled_squeeze_keeps_incompatible_cache_files(self) -> None:
+		self.cache_dir.mkdir()
+		cache_file = self.cache_dir / "incompatible.cache"
+		cache_file.write_bytes(b"untouched")
+		self.make_app(
+			{
+				"SQUEEZE_COMPRESS": False,
+				**{minification.enable_config_key: False for minification in Minification},
+				"SQUEEZE_CACHE_DIR": self.cache_dir,
+			}
+		)
+		self.assertEqual(cache_file.read_bytes(), b"untouched")
+
 	def test_deferred_init_squeezes_responses(self) -> None:
 		squeeze = Squeeze()
 		app = make_css_app({})

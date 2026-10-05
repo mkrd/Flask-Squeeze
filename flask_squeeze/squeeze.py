@@ -1,13 +1,37 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import sys
+import zlib
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 from .compress import CompressionStats, compress
-from .minify import MinificationStats, minify
+from .minify import MinificationStats, minification_options_signature, minify
 
 if TYPE_CHECKING:
 	from .plan import SqueezePlan
+
+# Increment when squeezing behavior changes without a dependency or option change.
+SQUEEZE_REVISION = 1
+
+
+def squeeze_fingerprint() -> str:
+	identity = (
+		str(SQUEEZE_REVISION),
+		version("flask-squeeze"),
+		version("turbohtml"),
+		version("brotli"),
+		zlib.ZLIB_RUNTIME_VERSION,
+		sys.version,
+		*minification_options_signature(),
+	)
+	return hashlib.sha256(json.dumps(identity).encode("utf-8")).hexdigest()
+
+
+SQUEEZE_FINGERPRINT = squeeze_fingerprint()
 
 
 @dataclass(frozen=True)

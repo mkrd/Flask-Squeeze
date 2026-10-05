@@ -11,6 +11,8 @@ from threading import Barrier
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from turbohtml.clean import JSMinify
+
 from flask_squeeze.cache import (
 	CACHE_FORMAT_MAGIC,
 	CACHE_HEADER_BYTES,
@@ -18,13 +20,14 @@ from flask_squeeze.cache import (
 	CacheEntry,
 	CacheKey,
 	CacheMetadata,
+	CacheStatus,
 	StaticFileCache,
 )
 from flask_squeeze.compress import CompressionStats
 from flask_squeeze.minify import MinificationStats
 from flask_squeeze.plan import Compression, Encoding, Minification, SqueezePlan
-from flask_squeeze.squeeze import SqueezeResult
-from tests.sample_app import SampleAppTestCase
+from flask_squeeze.squeeze import SQUEEZE_FINGERPRINT, SqueezeResult, squeeze_fingerprint
+from tests.sample_app import CSS, MINIFIED_CSS, SampleAppTestCase, decoded_body, decompress
 
 if TYPE_CHECKING:
 	from collections.abc import Callable, Mapping
@@ -99,6 +102,30 @@ class PersistentCacheTest(SampleAppTestCase):
 		# A different encoding is a separate variant group and coexists
 		self.assertEqual(self.fetch_sample_css_cache_status({"SQUEEZE_MINIFY_CSS": False}, encoding="br"), "MISS")
 		self.assertEqual(self.cache_file_count(), len(["gzip", "br"]))
+
+	def test_squeeze_upgrade_invalidates_persistent_entries(self) -> None:
+		self.assertEqual(self.fetch_sample_css_cache_status(), "MISS")
+		old_file = next(self.cache_dir.glob("*.cache"))
+		with patch("flask_squeeze.squeeze.version", return_value="upgraded"):
+			updated_fingerprint = squeeze_fingerprint()
+		self.assertNotEqual(updated_fingerprint, SQUEEZE_FINGERPRINT)
+		with patch("flask_squeeze.cache.SQUEEZE_FINGERPRINT", updated_fingerprint):
+			self.assertEqual(self.fetch_sample_css_cache_status(), "MISS")
+			self.assertFalse(old_file.exists())
+			self.assertEqual(self.fetch_sample_css_cache_status(), "HIT")
+			self.assertEqual(self.cache_file_count(), 1)
+
+	def test_minifier_options_invalidate_persistent_entries(self) -> None:
+		(self.tmp_path / "options.js").write_bytes(b"function increment(longName) { return longName + 1; }")
+		config = {"SQUEEZE_CACHE_DIR": self.cache_dir}
+		first = self.make_app(config).test_client().get("/static/options.js")
+		with patch("flask_squeeze.minify.JS_OPTIONS", JSMinify(mangle=True, fold=False)):
+			updated_fingerprint = squeeze_fingerprint()
+			with patch("flask_squeeze.cache.SQUEEZE_FINGERPRINT", updated_fingerprint):
+				updated = self.make_app(config).test_client().get("/static/options.js")
+				self.assertEqual(updated.headers["X-Flask-Squeeze-Cache"], "MISS")
+				self.assertNotEqual(decoded_body(first), decoded_body(updated))
+				self.assertNotEqual(first.headers["ETag"], updated.headers["ETag"])
 
 	def test_duplicate_variants_on_disk_keep_one(self) -> None:
 		other_dir = self.tmp_path / "other"
@@ -323,6 +350,26 @@ class PersistentCacheTest(SampleAppTestCase):
 
 
 class InMemoryCacheTest(unittest.TestCase):
+	def test_cached_squeeze_tracks_source_and_plan_changes(self) -> None:
+		cache = StaticFileCache(None)
+		key = CacheKey.for_request_path("/static/sample.css", GZIP_AND_MINIFY_CSS_PLAN)
+		first = cache.squeeze(key, CSS)
+		self.assertEqual(first.status, CacheStatus.miss)
+		self.assertEqual(decompress(first.squeeze_result.squeezed_body, Encoding.gzip), MINIFIED_CSS)
+
+		hit = cache.squeeze(key, CSS)
+		self.assertEqual(hit.status, CacheStatus.hit)
+		self.assertEqual(hit.squeeze_result, first.squeeze_result)
+
+		changed_source = cache.squeeze(key, b".box { color: blue; }")
+		self.assertEqual(changed_source.status, CacheStatus.miss)
+		self.assertEqual(decompress(changed_source.squeeze_result.squeezed_body, Encoding.gzip), b".box{color:blue}")
+
+		unminified_key = CacheKey.for_request_path("/static/sample.css", GZIP_ONLY_PLAN)
+		changed_plan = cache.squeeze(unminified_key, CSS)
+		self.assertEqual(changed_plan.status, CacheStatus.miss)
+		self.assertEqual(decompress(changed_plan.squeeze_result.squeezed_body, Encoding.gzip), CSS)
+
 	def test_variant_replaces_the_other_variant_of_its_encoding(self) -> None:
 		cache = StaticFileCache(None)
 		plain = make_cache_entry("/static/sample.css", GZIP_ONLY_PLAN, b"plain")
@@ -404,23 +451,28 @@ class CacheKeyTest(unittest.TestCase):
 				self.assertEqual(CacheKey.from_filename_stem(key.filename_stem), key)
 
 	def test_parse_rejects_foreign_names(self) -> None:
-		for stem in (
-			"abc.gzip.js",
-			"abc.zstd.js.9",
-			"abc.gzip.js.none",
-			"abc.none.js.9",
-			"abc.gzip.js.high",
-			"abc.none.none.none",
-			"abc.gzip.js.²",
-			"abc.gzip.js.\N{FULLWIDTH DIGIT NINE}",
-			"abc.gzip.js.09",
-			"abc.gzip.js.10",
-			"abc.deflate.js.10",
-			"abc.br.js.12",
-			"abc.gzip.js.-1",
-			"abc.gzip.js.",
-			f"abc.br.js.{'9' * 5000}",
+		self.assertIsNone(CacheKey.from_filename_stem("abc.gzip.js.9"))
+		self.assertIsNone(CacheKey.from_filename_stem("abc.outdated.gzip.js.9"))
+		for suffix in (
+			"gzip.js",
+			"zstd.js.9",
+			"gzip.js.none",
+			"none.js.9",
+			"gzip.unknown.9",
+			"gzip.js.high",
+			"none.none.none",
+			"gzip.js.²",
+			"gzip.js.\N{FULLWIDTH DIGIT NINE}",
+			"gzip.js.09",
+			"gzip.js.10",
+			"deflate.js.10",
+			"br.js.12",
+			"br.js.09",
+			"gzip.js.-1",
+			"gzip.js.",
+			f"br.js.{'9' * 5000}",
 		):
+			stem = f"abc.{SQUEEZE_FINGERPRINT}.{suffix}"
 			with self.subTest(stem=stem):
 				self.assertIsNone(CacheKey.from_filename_stem(stem))
 

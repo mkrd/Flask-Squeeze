@@ -63,6 +63,14 @@ class Compression:
 	encoding: Encoding
 	level: int
 
+	def __post_init__(self) -> None:
+		if not isinstance(self.level, int) or isinstance(self.level, bool):
+			msg = f"Compression level must be an int, got {self.level!r}"
+			raise TypeError(msg)
+		if not 0 <= self.level <= self.encoding.max_level:
+			msg = f"{self.encoding.value} level must be between 0 and {self.encoding.max_level}, got {self.level}"
+			raise ValueError(msg)
+
 
 @dataclass(frozen=True)
 class SqueezePlan:
@@ -75,13 +83,3 @@ class SqueezePlan:
 		if self.compression is None and self.minification is None:
 			msg = "A SqueezePlan needs a compression, a minification, or both"
 			raise ValueError(msg)
-
-	@property
-	def etag_suffix(self) -> str:
-		"""Identifies the squeezed bytes, so each variant of a resource gets its own strong ETag."""
-		parts: list[str] = []
-		if self.minification is not None:
-			parts.append(f"min{self.minification.value}")
-		if self.compression is not None:
-			parts.append(f"{self.compression.encoding.value}{self.compression.level}")
-		return "-".join(parts)

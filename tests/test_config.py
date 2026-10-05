@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from flask import Config
@@ -40,6 +41,20 @@ class SqueezeConfigTest(unittest.TestCase):
 				with self.subTest(encoding=encoding, resource_type=resource_type, level=level):
 					config = parse({encoding.level_config_key(resource_type): level})
 					self.assertEqual(config.compression_level(encoding, resource_type), level)
+
+	def test_compression_levels_do_not_retain_mutable_aliases(self) -> None:
+		original = parse({})
+		levels = dict(original.compression_levels)
+		config = replace(original, compression_levels=levels)
+		levels[Encoding.gzip, ResourceType.static] = 1
+		self.assertEqual(config.compression_level(Encoding.gzip, ResourceType.static), 9)
+
+	def test_direct_construction_rejects_invalid_compression_levels(self) -> None:
+		config = parse({})
+		levels = dict(config.compression_levels)
+		levels[Encoding.gzip, ResourceType.static] = 10
+		with self.assertRaises(ValueError):
+			replace(config, compression_levels=levels)
 
 	def test_invalid_values_name_the_key(self) -> None:
 		cases: list[tuple[str, object, type[Exception]]] = [
