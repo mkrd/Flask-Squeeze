@@ -89,10 +89,10 @@ class BrowserHtmxTest(unittest.TestCase):
 			page.get_by_role("button", name="Load").click()
 		expect(page.locator("#result")).to_have_text("Loaded")
 		self.assertEqual(fragment_response.value.status, 200)
-		self.assertIn(fragment_response.value.headers["content-encoding"], encodings)
+		self.assertNotIn("content-encoding", fragment_response.value.headers)
 		self.assertEqual(fragment_response.value.request.header_value("HX-Request"), "true")
 		with page.expect_response(lambda response: urlsplit(response.url).path == "/row") as row_response:
 			page.get_by_role("button", name="Add row").click()
 		expect(page.locator("#rows > tr > td")).to_have_text(["First", "Second"])
 		self.assertEqual(row_response.value.status, 200)
-		self.assertIn(row_response.value.headers["content-encoding"], encodings)
+		self.assertNotIn("content-encoding", row_response.value.headers)

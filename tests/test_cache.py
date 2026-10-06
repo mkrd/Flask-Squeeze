@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from pathlib import Path
 from threading import Barrier
 from typing import TYPE_CHECKING
@@ -27,6 +27,7 @@ from flask_squeeze.compress import CompressionStats
 from flask_squeeze.minify import MinificationStats
 from flask_squeeze.plan import Compression, Encoding, Minification, SqueezePlan
 from flask_squeeze.squeeze import SQUEEZE_FINGERPRINT, SqueezeResult, squeeze_fingerprint
+from flask_squeeze.stats import OperationError
 from tests.sample_app import CSS, MINIFIED_CSS, SampleAppTestCase, decoded_body, decompress
 
 if TYPE_CHECKING:
@@ -39,10 +40,12 @@ GZIP_AND_MINIFY_CSS_PLAN = SqueezePlan(Compression(Encoding.gzip, 9), Minificati
 def make_cache_entry(request_path: str, plan: SqueezePlan, squeezed_body: bytes) -> CacheEntry:
 	minification_stats = None
 	if plan.minification is not None:
-		minification_stats = MinificationStats(duration_seconds=0.5, size_ratio=2.0)
+		minification_stats = MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3)
 	compression_stats = None
 	if plan.compression is not None:
-		compression_stats = CompressionStats(level=plan.compression.level, duration_seconds=0.25, size_ratio=3.0)
+		compression_stats = CompressionStats(
+			level=plan.compression.level, duration_seconds=0.25, before_bytes=3, after_bytes=1
+		)
 	return CacheEntry(
 		CacheKey.for_request_path(request_path, plan),
 		"original",
@@ -211,8 +214,8 @@ class PersistentCacheTest(SampleAppTestCase):
 				self.check_corrupt_entry_is_deleted_and_rewritten(expected_body)
 
 	def test_stats_that_do_not_match_the_key_are_discarded(self) -> None:
-		minification_stats = MinificationStats(duration_seconds=0.5, size_ratio=2.0)
-		compression_stats = CompressionStats(level=9, duration_seconds=0.25, size_ratio=3.0)
+		minification_stats = MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3)
+		compression_stats = CompressionStats(level=9, duration_seconds=0.25, before_bytes=3, after_bytes=1)
 		cases = [
 			(GZIP_ONLY_PLAN, SqueezeResult(b"body", minification_stats, compression_stats)),
 			(GZIP_AND_MINIFY_CSS_PLAN, SqueezeResult(b"body", minification_stats, None)),
@@ -363,7 +366,7 @@ class InMemoryCacheTest(unittest.TestCase):
 
 		changed_source = cache.squeeze(key, b".box { color: blue; }")
 		self.assertEqual(changed_source.status, CacheStatus.miss)
-		self.assertEqual(decompress(changed_source.squeeze_result.squeezed_body, Encoding.gzip), b".box{color:blue}")
+		self.assertEqual(changed_source.squeeze_result.squeezed_body, b".box{color:blue}")
 
 		unminified_key = CacheKey.for_request_path("/static/sample.css", GZIP_ONLY_PLAN)
 		changed_plan = cache.squeeze(unminified_key, CSS)
@@ -389,8 +392,8 @@ class InMemoryCacheTest(unittest.TestCase):
 
 class CacheEntryTest(unittest.TestCase):
 	def test_stats_that_do_not_match_the_plan_are_rejected_at_construction(self) -> None:
-		minification_stats = MinificationStats(duration_seconds=0.5, size_ratio=2.0)
-		compression_stats = CompressionStats(level=9, duration_seconds=0.25, size_ratio=3.0)
+		minification_stats = MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3)
+		compression_stats = CompressionStats(level=9, duration_seconds=0.25, before_bytes=3, after_bytes=1)
 		cases = (
 			(GZIP_ONLY_PLAN, SqueezeResult(b"body", minification_stats, compression_stats)),
 			(GZIP_AND_MINIFY_CSS_PLAN, SqueezeResult(b"body", None, compression_stats)),
@@ -482,7 +485,7 @@ class CacheMetadataTest(unittest.TestCase):
 		metadata = CacheMetadata(
 			original_body_hash="a",
 			squeezed_body_hash="b",
-			minification_stats=MinificationStats(duration_seconds=0.5, size_ratio=2.0),
+			minification_stats=MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3),
 			compression_stats=None,
 		)
 		self.assertEqual(CacheMetadata.from_json(metadata.to_json()), metadata)
@@ -490,27 +493,61 @@ class CacheMetadataTest(unittest.TestCase):
 	def test_invalid_compression_levels_are_rejected(self) -> None:
 		for level in (True, False, -1):
 			with self.subTest(level=level):
-				metadata = CacheMetadata("a", "b", None, CompressionStats(level, 0.25, 3.0))
+				metadata = CacheMetadata(
+					"a", "b", None, CompressionStats(level, duration_seconds=0.25, before_bytes=3, after_bytes=1)
+				)
 				self.assertIsNone(CacheMetadata.from_json(metadata.to_json()))
 
 	def test_invalid_statistics_are_rejected(self) -> None:
-		minification = MinificationStats(0.5, 2.0)
-		compression = CompressionStats(9, 0.25, 3.0)
+		minification = MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3)
+		compression = CompressionStats(9, duration_seconds=0.25, before_bytes=3, after_bytes=1)
 		metadata = CacheMetadata("a", "b", minification, compression)
 		for value in (float("nan"), float("inf"), float("-inf"), -1.0):
-			cases = (
-				replace(metadata, minification_stats=replace(minification, duration_seconds=value)),
-				replace(metadata, minification_stats=replace(minification, size_ratio=value)),
-				replace(metadata, compression_stats=replace(compression, duration_seconds=value)),
-				replace(metadata, compression_stats=replace(compression, size_ratio=value)),
-			)
-			for case in cases:
-				with self.subTest(metadata=case):
-					self.assertIsNone(CacheMetadata.from_json(case.to_json()))
+			for duration in ("0.5", "0.25"):
+				with self.subTest(value=value, duration=duration):
+					content = metadata.to_json().replace(
+						f'"duration_seconds": {duration}', f'"duration_seconds": {json.dumps(value)}'
+					)
+					self.assertIsNone(CacheMetadata.from_json(content))
+
+	def test_invalid_sizes_and_errors_are_rejected(self) -> None:
+		metadata = CacheMetadata("a", "b", MinificationStats(duration_seconds=0.5, before_bytes=6, after_bytes=3), None)
+		for field, original, invalid in (
+			("before_bytes", "6", "true"),
+			("before_bytes", "6", "-1"),
+			("before_bytes", "6", "1.5"),
+			("before_bytes", "6", "null"),
+			("after_bytes", "3", "false"),
+			("after_bytes", "3", "-1"),
+			("after_bytes", "3", "1.5"),
+			("after_bytes", "3", "null"),
+			("error", "null", '"unknown"'),
+			("error", "null", '"invalid-utf8"'),
+		):
+			with self.subTest(field=field, invalid=invalid):
+				content = metadata.to_json().replace(f'"{field}": {original}', f'"{field}": {invalid}')
+				self.assertIsNone(CacheMetadata.from_json(content))
 
 	def test_zero_statistics_round_trip(self) -> None:
-		metadata = CacheMetadata("a", "b", MinificationStats(0.0, 0.0), CompressionStats(0, 0.0, 0.0))
+		metadata = CacheMetadata(
+			"a",
+			"b",
+			MinificationStats(duration_seconds=0.0, before_bytes=0, after_bytes=0),
+			CompressionStats(0, duration_seconds=0.0, before_bytes=0, after_bytes=0),
+		)
 		self.assertEqual(CacheMetadata.from_json(metadata.to_json()), metadata)
+
+	def test_failure_and_skip_statistics_round_trip(self) -> None:
+		metadata = CacheMetadata(
+			"a",
+			"b",
+			MinificationStats(
+				duration_seconds=0.5, before_bytes=6, after_bytes=None, error=OperationError.javascript_parse_error
+			),
+			CompressionStats(9, duration_seconds=0.25, before_bytes=6, after_bytes=20),
+		)
+		restored = CacheMetadata.from_json(metadata.to_json())
+		self.assertEqual(restored, metadata)
 
 	def test_parse_rejects_foreign_content(self) -> None:
 		for text in (

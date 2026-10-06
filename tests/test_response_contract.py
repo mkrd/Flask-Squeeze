@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import itertools
 import shutil
+import zlib
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from flask import Flask, Response, request, send_file
 
@@ -33,8 +35,8 @@ class AssetCase:
 
 ASSET_CASES = [
 	AssetCase("css", CSS, MINIFIED_CSS),
-	AssetCase("js", JS, b"const answer=42"),
-	AssetCase("html", HTML, b"<p>Hello</p>"),
+	AssetCase("js", JS, b"const answer='" + b"x" * 100 + b"'"),
+	AssetCase("html", HTML, b"<p>Hello</p>" * 10),
 ]
 
 
@@ -125,7 +127,7 @@ class BodyAndHeadersTest(SampleAppTestCase):
 		self.assertEqual(response.status_code, HTTPStatus.OK)
 		self.assertEqual(response.headers["Content-Length"], str(len(response.data)))
 
-	def test_other_charsets_are_compressed_not_minified(self) -> None:
+	def test_other_charsets_are_not_minified(self) -> None:
 		source = ".a { content: '\N{LATIN SMALL LETTER E WITH ACUTE}'; }".encode("latin-1")
 		app = self.make_app()
 
@@ -134,11 +136,11 @@ class BodyAndHeadersTest(SampleAppTestCase):
 			return Response(source, content_type="text/css; charset=iso-8859-1")
 
 		response = app.test_client().get("/latin1.css", headers={"Accept-Encoding": "gzip"})
-		self.assertEqual(response.headers["Content-Encoding"], "gzip")
+		self.assertNotIn("Content-Encoding", response.headers)
 		self.assertNotIn("X-Flask-Squeeze-Minify", response.headers)
 		self.assertEqual(decoded_body(response), source)
 
-	def test_invalid_utf8_declared_as_utf8_raises(self) -> None:
+	def test_invalid_utf8_declared_as_utf8_reports_failure(self) -> None:
 		app = self.make_app()
 
 		@app.get("/latin1.css")
@@ -146,8 +148,10 @@ class BodyAndHeadersTest(SampleAppTestCase):
 			# Flask declares charset=utf-8 for text mimetypes
 			return Response("\N{LATIN SMALL LETTER E WITH ACUTE}".encode("latin-1"), mimetype="text/css")
 
-		with self.assertRaises(UnicodeDecodeError):
-			app.test_client().get("/latin1.css")
+		response = app.test_client().get("/latin1.css")
+		self.assertEqual(response.data, "\N{LATIN SMALL LETTER E WITH ACUTE}".encode("latin-1"))
+		self.assertIn("status=minification_failed", response.headers["X-Flask-Squeeze-Minify"])
+		self.assertIn("error=invalid-utf8", response.headers["X-Flask-Squeeze-Minify"])
 
 	def test_already_encoded_response_is_preserved(self) -> None:
 		response = self.make_app().test_client().get("/already", headers={"Accept-Encoding": "br"})
@@ -204,8 +208,8 @@ class BodyAndHeadersTest(SampleAppTestCase):
 			with self.subTest(status=status):
 				response = client.get(f"/status/{status.value}", headers={"Accept-Encoding": "gzip"})
 				self.assertEqual(response.status_code, status)
-				self.assertEqual(response.headers["Content-Encoding"], "gzip")
-				self.assertEqual(decoded_body(response), b"payload")
+			self.assertNotIn("Content-Encoding", response.headers)
+			self.assertEqual(decoded_body(response), b"payload")
 
 	def test_size_threshold_is_inclusive(self) -> None:
 		at_threshold = self.make_app({"SQUEEZE_MIN_SIZE": len(CSS)})
@@ -398,6 +402,94 @@ class BodyAndHeadersTest(SampleAppTestCase):
 
 
 class InfoHeadersAndLoggingTest(SampleAppTestCase):
+	def test_sizes_describe_each_operation(self) -> None:
+		response = self.make_app().test_client().get("/dynamic.css", headers={"Accept-Encoding": "gzip"})
+		minification = response.headers["X-Flask-Squeeze-Minify"]
+		compression = response.headers["X-Flask-Squeeze-Compress"]
+		self.assertIn("status=minified", minification)
+		self.assertIn(f"before={len(CSS)}; after={len(MINIFIED_CSS)};", minification)
+		self.assertIn("ratio=", minification)
+		self.assertIn("status=compressed", compression)
+		self.assertIn(f"before={len(MINIFIED_CSS)}; after={len(response.data)};", compression)
+		self.assertIn("ratio=", compression)
+
+	def test_larger_minification_still_allows_compression(self) -> None:
+		client = self.make_app().test_client()
+		with patch("flask_squeeze.minify.minify_css", return_value=CSS.decode() + "extra"):
+			response = client.get("/dynamic.css", headers={"Accept-Encoding": "gzip"})
+		self.assertEqual(decoded_body(response), CSS)
+		self.assertIn("status=skipped_minified_too_large", response.headers["X-Flask-Squeeze-Minify"])
+		self.assertNotIn("ratio=", response.headers["X-Flask-Squeeze-Minify"])
+		self.assertIn("status=compressed", response.headers["X-Flask-Squeeze-Compress"])
+
+	def test_larger_compression_preserves_minification_and_cached_headers(self) -> None:
+		client = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir}).test_client()
+		headers = {"Accept-Encoding": "gzip"}
+		with patch("gzip.compress", return_value=b"x" * (len(MINIFIED_CSS) + 1)):
+			miss = client.get("/static/sample.css", headers=headers)
+			dynamic = client.get("/dynamic.css", headers=headers)
+		restarted = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir}).test_client()
+		hit = restarted.get("/static/sample.css", headers=headers)
+		for response in (miss, dynamic, hit):
+			self.assertEqual(response.data, MINIFIED_CSS)
+			self.assertNotIn("Content-Encoding", response.headers)
+			self.assertNotIn("X-Flask-Squeeze-Breach-Protection", response.headers)
+			self.assertEqual(response.content_length, len(MINIFIED_CSS))
+			self.assertIn("status=minified", response.headers["X-Flask-Squeeze-Minify"])
+			self.assertIn("status=skipped_compressed_too_large", response.headers["X-Flask-Squeeze-Compress"])
+			self.assertNotIn("ratio=", response.headers["X-Flask-Squeeze-Compress"])
+		self.assertEqual(hit.headers["X-Flask-Squeeze-Cache"], "HIT")
+		self.assertEqual(miss.headers["X-Flask-Squeeze-Compress"], hit.headers["X-Flask-Squeeze-Compress"])
+
+	def test_failed_minification_still_allows_compression_and_is_cached(self) -> None:
+		source = b"const = ;\n" * 100
+		(self.tmp_path / "invalid.js").write_bytes(source)
+		headers = {"Accept-Encoding": "gzip"}
+		client = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir}).test_client()
+		miss = client.get("/static/invalid.js", headers=headers)
+		restarted = self.make_app({"SQUEEZE_CACHE_DIR": self.cache_dir}).test_client()
+		hit = restarted.get("/static/invalid.js", headers=headers)
+		for response in (miss, hit):
+			self.assertEqual(decoded_body(response), source)
+			self.assertIn("status=minification_failed", response.headers["X-Flask-Squeeze-Minify"])
+			self.assertIn("error=javascript-parse-error", response.headers["X-Flask-Squeeze-Minify"])
+			self.assertNotIn("ratio=", response.headers["X-Flask-Squeeze-Minify"])
+			self.assertIn("status=compressed", response.headers["X-Flask-Squeeze-Compress"])
+		self.assertEqual(hit.headers["X-Flask-Squeeze-Cache"], "HIT")
+		self.assertEqual(miss.headers["X-Flask-Squeeze-Minify"], hit.headers["X-Flask-Squeeze-Minify"])
+
+	def test_failed_compression_preserves_minification(self) -> None:
+		client = self.make_app().test_client()
+		with patch("gzip.compress", side_effect=zlib.error("invalid input")):
+			response = client.get("/dynamic.css", headers={"Accept-Encoding": "gzip"})
+		self.assertEqual(response.data, MINIFIED_CSS)
+		self.assertNotIn("Content-Encoding", response.headers)
+		self.assertNotIn("X-Flask-Squeeze-Breach-Protection", response.headers)
+		self.assertIn("status=minified", response.headers["X-Flask-Squeeze-Minify"])
+		self.assertIn("status=compression_failed", response.headers["X-Flask-Squeeze-Compress"])
+		self.assertNotIn("ratio=", response.headers["X-Flask-Squeeze-Compress"])
+
+	def test_unapplied_compression_respects_identity_rejection(self) -> None:
+		client = self.make_app().test_client()
+		for method, error in itertools.product(("GET", "HEAD"), (False, True)):
+			with (
+				self.subTest(method=method, error=error),
+				patch(
+					"gzip.compress",
+					return_value=b"x" * len(CSS),
+					side_effect=zlib.error("invalid input") if error else None,
+				),
+			):
+				response = client.open("/dynamic.css", method=method, headers={"Accept-Encoding": "gzip, identity;q=0"})
+				self.assertEqual(response.status_code, HTTPStatus.NOT_ACCEPTABLE)
+				self.assertEqual(response.data, b"")
+				self.assertNotIn("Content-Encoding", response.headers)
+				self.assertNotIn("X-Flask-Squeeze-Breach-Protection", response.headers)
+				self.assertIn("Accept-Encoding", response.headers["Vary"])
+				status = "compression_failed" if error else "skipped_compressed_too_large"
+				self.assertIn(f"status={status}", response.headers["X-Flask-Squeeze-Compress"])
+				self.assertNotIn("ratio=", response.headers["X-Flask-Squeeze-Compress"])
+
 	def test_info_headers_can_be_disabled(self) -> None:
 		client = self.make_app({"SQUEEZE_INFO_HEADERS": False}).test_client()
 		for path in ("/static/sample.css", "/static/sample.css", "/dynamic.css"):
@@ -454,6 +546,27 @@ class InfoHeadersAndLoggingTest(SampleAppTestCase):
 
 
 class ConditionalRequestTest(SampleAppTestCase):
+	def test_skipped_compression_keeps_original_file_validators(self) -> None:
+		(self.tmp_path / "tiny.bin").write_bytes(b"x")
+		client = self.make_app().test_client()
+		original = client.get("/static/tiny.bin")
+		response = client.get("/static/tiny.bin", headers={"Accept-Encoding": "gzip"})
+		self.assertEqual(response.data, b"x")
+		self.assertEqual(response.headers["ETag"], original.headers["ETag"])
+		self.assertEqual(response.headers["Accept-Ranges"], original.headers["Accept-Ranges"])
+		self.assertNotIn("Content-Encoding", response.headers)
+		self.assertIn("status=skipped_compressed_too_large", response.headers["X-Flask-Squeeze-Compress"])
+		for method in ("GET", "HEAD"):
+			with self.subTest(method=method):
+				revalidated = client.open(
+					"/static/tiny.bin",
+					method=method,
+					headers={"Accept-Encoding": "gzip", "If-None-Match": original.headers["ETag"]},
+				)
+				self.assertEqual(revalidated.status_code, HTTPStatus.NOT_MODIFIED)
+				self.assertEqual(revalidated.headers["ETag"], original.headers["ETag"])
+				self.assertEqual(revalidated.data, b"")
+
 	def test_explicit_file_error_statuses_are_preserved(self) -> None:
 		app = self.make_app()
 

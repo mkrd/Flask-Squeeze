@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 
 	from werkzeug.wrappers import Response as WerkzeugResponse
 
-CSS = b".box { color: red; margin: 0px; }"
-JS = b"const answer = 42; // comment\n"
-HTML = b"<p>Hello</p><!-- comment -->"
-MINIFIED_CSS = b".box{color:red;margin:0}"
+CSS = b".box { color: red; margin: 0px; font-family: " + b"x" * 100 + b"; }"
+JS = b"const answer = '" + b"x" * 100 + b"'; // comment\n"
+HTML = b"<p>Hello</p><!-- comment -->" * 10
+MINIFIED_CSS = b".box{color:red;margin:0;font-family:" + b"x" * 100 + b"}"
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>

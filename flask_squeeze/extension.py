@@ -15,6 +15,7 @@ from .config import SqueezeConfig
 from .negotiate import ENCODING_PREFERENCE_ORDER, EncodingFallback, negotiate_encoding
 from .plan import Compression, Encoding, Minification, ResourceType, SqueezePlan
 from .squeeze import SqueezeResult, apply_squeeze_plan
+from .stats import OperationStatus
 
 if TYPE_CHECKING:
 	from flask import Flask, Response
@@ -140,12 +141,7 @@ class ResponseSqueezer:
 		available_encodings = ENCODING_PREFERENCE_ORDER if can_squeeze and self.config.compression_enabled else ()
 		negotiated = negotiate_encoding(request.headers.get("Accept-Encoding"), available_encodings=available_encodings)
 		if negotiated is EncodingFallback.not_acceptable:
-			_log_for_request("rejected, no acceptable content encoding")
-			rejected = current_app.response_class(status=HTTPStatus.NOT_ACCEPTABLE)
-			rejected.vary.update(response.vary)
-			rejected.vary.add("Accept-Encoding")
-			rejected.call_on_close(response.close)
-			return rejected
+			return self._reject_encoding(response)
 		if not can_squeeze:
 			return response
 
@@ -170,16 +166,47 @@ class ResponseSqueezer:
 			response.status_code = HTTPStatus.OK
 
 		response.direct_passthrough = False  # Squeezing reads the whole body
+		original_body = response.get_data()
 
 		if resource_type is ResourceType.static:
-			self._squeeze_static_response(response, plan)
+			result = self._squeeze_static_response(response, plan)
 		else:
-			self._squeeze_dynamic_response(response, plan)
+			result = self._squeeze_dynamic_response(response, plan)
 
-		self._update_representation_headers(response, plan)
+		return self._finish_squeeze(response, plan, result, original_body)
+
+	def _finish_squeeze(
+		self, response: Response, plan: SqueezePlan, result: SqueezeResult, original_body: bytes
+	) -> Response:
+		compression_applied = (
+			result.compression_stats is not None and result.compression_stats.status is OperationStatus.applied
+		)
+		if (
+			not compression_applied
+			and negotiate_encoding(request.headers.get("Accept-Encoding"), available_encodings=())
+			is EncodingFallback.not_acceptable
+		):
+			return self._reject_encoding(response)
+
+		if result.squeezed_body != original_body:
+			self._update_representation_headers(response, plan, compression_applied=compression_applied)
+		elif response.get_etag()[0] is not None:
+			response.make_conditional(request)
 
 		_log_for_request("squeezed, compression=%s, minification=%s", plan.compression, plan.minification)
 		return response
+
+	@staticmethod
+	def _reject_encoding(response: Response) -> Response:
+		_log_for_request("rejected, no acceptable content encoding")
+		rejected = current_app.response_class(status=HTTPStatus.NOT_ACCEPTABLE)
+		rejected.vary.update(response.vary)
+		rejected.vary.add("Accept-Encoding")
+		for header in ("X-Flask-Squeeze-Minify", "X-Flask-Squeeze-Compress", CACHE_STATUS_HEADER):
+			if header in response.headers:
+				rejected.headers[header] = response.headers[header]
+		rejected.call_on_close(response.close)
+		return rejected
 
 	@staticmethod
 	def _requires_original_representation(response: Response, resource_type: ResourceType) -> bool:
@@ -236,12 +263,14 @@ class ResponseSqueezer:
 		if self.config.info_headers_enabled:
 			response.headers[CACHE_STATUS_HEADER] = cache_status.value
 
-	def _squeeze_dynamic_response(self, response: Response, plan: SqueezePlan) -> None:
-		self._write_squeeze_result(response, apply_squeeze_plan(response.get_data(), plan))
-		if plan.compression is not None:
+	def _squeeze_dynamic_response(self, response: Response, plan: SqueezePlan) -> SqueezeResult:
+		result = apply_squeeze_plan(response.get_data(), plan)
+		self._write_squeeze_result(response, result)
+		if result.compression_stats is not None and result.compression_stats.status is OperationStatus.applied:
 			_add_breach_protection_header(response)
+		return result
 
-	def _squeeze_static_response(self, response: Response, plan: SqueezePlan) -> None:
+	def _squeeze_static_response(self, response: Response, plan: SqueezePlan) -> SqueezeResult:
 		cache_key = CacheKey.for_request_path(request.path, plan)
 		cached_result = self.static_cache.squeeze(cache_key, response.get_data())
 		if cached_result.status is CacheStatus.hit:
@@ -250,14 +279,15 @@ class ResponseSqueezer:
 			_log_for_request("static cache miss, squeezing")
 		self._write_squeeze_result(response, cached_result.squeeze_result)
 		self._set_cache_status_header(response, cached_result.status)
+		return cached_result.squeeze_result
 
 	####################################################################################
 	#### MARK: Headers
 
 	@staticmethod
-	def _update_representation_headers(response: Response, plan: SqueezePlan) -> None:
+	def _update_representation_headers(response: Response, plan: SqueezePlan, *, compression_applied: bool) -> None:
 		"""Make the headers describe the squeezed body instead of the original one."""
-		if plan.compression is not None:
+		if compression_applied and plan.compression is not None:
 			response.headers["Content-Encoding"] = plan.compression.encoding.value
 
 		# Byte ranges of the squeezed body cannot be served, the Range handling works on the original

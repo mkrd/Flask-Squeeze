@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 	from .plan import SqueezePlan
 
 # Increment when squeezing behavior changes without a dependency or option change.
-SQUEEZE_REVISION = 1
+SQUEEZE_REVISION = 2
 
 
 def squeeze_fingerprint() -> str:

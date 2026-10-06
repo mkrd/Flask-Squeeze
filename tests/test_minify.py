@@ -1,8 +1,10 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask_squeeze.minify import is_document, minify, minify_css, minify_html, minify_js
 from flask_squeeze.plan import Minification
+from flask_squeeze.stats import OperationError, OperationStatus
 
 BOM = "\N{ZERO WIDTH NO-BREAK SPACE}".encode()
 
@@ -32,10 +34,17 @@ class MinifyTest(unittest.TestCase):
 			with self.subTest(minification=minification):
 				self.assertEqual(minify(BOM + source, minification)[0], expected)
 
-	def test_invalid_utf8_raises(self) -> None:
+	def test_invalid_utf8_reports_failure(self) -> None:
 		for minification in Minification:
-			with self.subTest(minification=minification), self.assertRaises(UnicodeDecodeError):
-				minify("\N{LATIN SMALL LETTER E WITH ACUTE}".encode("latin-1"), minification)
+			with self.subTest(minification=minification):
+				original = "\N{LATIN SMALL LETTER E WITH ACUTE}".encode("latin-1")
+				body, stats = minify(original, minification)
+				self.assertEqual(body, original)
+				self.assertEqual(stats.status, OperationStatus.failed)
+				self.assertEqual(stats.error, OperationError.invalid_utf8)
+				self.assertIsNone(stats.after_bytes)
+				self.assertIn("status=minification_failed", stats.info_headers["X-Flask-Squeeze-Minify"])
+				self.assertNotIn("ratio=", stats.info_headers["X-Flask-Squeeze-Minify"])
 
 	def test_minify_html_preserves_whitespace_sensitive_content(self) -> None:
 		source = (
@@ -130,9 +139,39 @@ class MinifyTest(unittest.TestCase):
 		)
 
 	def test_minify_htmx_preserves_unsupported_syntax(self) -> None:
-		source = (Path(__file__).parent / "fixtures" / "htmx.js").read_text(encoding="utf-8")
+		source = (Path(__file__).parent / "fixtures" / "htmx.js").read_bytes()
 
-		self.assertEqual(minify_js(source), source)
+		body, stats = minify(source, Minification.js)
+		self.assertEqual(body, source)
+		self.assertEqual(stats.status, OperationStatus.failed)
+		self.assertEqual(stats.error, OperationError.javascript_parse_error)
+
+	def test_larger_output_is_not_applied(self) -> None:
+		for minification, target in (
+			(Minification.html, "flask_squeeze.minify.minify_html"),
+			(Minification.css, "flask_squeeze.minify.minify_css"),
+			(Minification.js, "flask_squeeze.minify.minify_js"),
+		):
+			with self.subTest(minification=minification), patch(target, return_value="larger output"):
+				body, stats = minify(b"input", minification)
+				self.assertEqual(body, b"input")
+				self.assertEqual(stats.status, OperationStatus.skipped_larger)
+				self.assertEqual(stats.before_bytes, 5)
+				self.assertEqual(stats.after_bytes, 13)
+				self.assertIn("status=skipped_minified_too_large", stats.info_headers["X-Flask-Squeeze-Minify"])
+				self.assertNotIn("ratio=", stats.info_headers["X-Flask-Squeeze-Minify"])
+
+	def test_sizes_count_utf8_bytes(self) -> None:
+		body, stats = minify("<p>Grüße</p><!-- comment -->".encode(), Minification.html)
+		self.assertEqual(stats.before_bytes, 30)
+		self.assertEqual(stats.after_bytes, len(body))
+		self.assertGreater(stats.after_bytes or 0, len(body.decode()))
+		self.assertIn(f"before=30; after={len(body)};", stats.info_headers["X-Flask-Squeeze-Minify"])
+
+	def test_equal_size_output_is_applied(self) -> None:
+		body, stats = minify(b"<span>x</span>", Minification.html)
+		self.assertEqual(body, b"<span>x</span>")
+		self.assertEqual(stats.status, OperationStatus.applied)
 
 	def test_minify_legacy_javascript(self) -> None:
 		self.assertEqual(minify_js("const answer = 42; // comment\n"), "const answer=42")

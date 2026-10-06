@@ -40,8 +40,9 @@ by regular routes through `send_file` are answered against the variant's ETag.
 
 ### Text encoding
 Minification only supports UTF-8. Responses that declare another charset are compressed, but not minified.
-When no charset is declared, UTF-8 is assumed. A response that declares or assumes UTF-8 but contains
-invalid UTF-8 raises a `UnicodeDecodeError` when minified. A leading byte order mark is removed when minifying.
+When no charset is declared, UTF-8 is assumed. Invalid UTF-8 or unsupported JavaScript leaves the
+body unchanged by minification and reports a failure in the minification info header when enabled.
+A leading byte order mark is removed when minifying.
 
 HTML that does not start with a doctype or an `<html>`, `<head>` or `<body>` tag is minified as a fragment,
 so partial responses, such as table rows for htmx, keep all their tags.
@@ -113,10 +114,20 @@ or incompatible cache files are deleted on startup and rebuilt on the next reque
 Cache identity includes squeezing dependency versions and options, so upgrades invalidate incompatible entries.
 
 ### Info headers
-With `SQUEEZE_INFO_HEADERS` enabled, squeezed responses carry:
-- `X-Flask-Squeeze-Minify`: minification ratio and duration, e.g. `ratio=1.4x; duration=0.3ms`
-- `X-Flask-Squeeze-Compress`: compression ratio, level and duration, e.g. `ratio=3.2x; level=11; duration=4.1ms`
+With `SQUEEZE_INFO_HEADERS` enabled, attempted operations carry:
+- `X-Flask-Squeeze-Minify`: e.g. `status=minified; before=1400; after=1000; duration=0.3ms; ratio=1.4x`
+- `X-Flask-Squeeze-Compress`: e.g. `status=compressed; before=1000; after=250; duration=4.1ms; ratio=4.0x; level=11`
 - `X-Flask-Squeeze-Cache`: `HIT` or `MISS`, on static responses only
+
+`before` and `after` are byte counts for that operation. Compression starts from the body retained
+after minification. If an operation produces more bytes than its input, its output is discarded:
+the header uses `status=skipped_minified_too_large` or `status=skipped_compressed_too_large`,
+with `after` showing the rejected output size.
+Equal-size outputs are applied. Parser or compressor failures retain the input and use
+`status=minification_failed` or `status=compression_failed`, with `after=unknown` and an `error` reason.
+Only successful operations include a ratio. Disabled or inapplicable operations have no info header.
+When compression is skipped or fails, `Content-Encoding` and BREACH padding are omitted. If the
+client forbids identity encoding, the response is an empty 406 with the operation info headers.
 
 On a cache hit, the ratio and duration are the ones measured when the file was squeezed.
 They expose timing data to every client, so keep them disabled in production.

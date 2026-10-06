@@ -8,44 +8,53 @@ from dataclasses import dataclass
 import brotli
 
 from .plan import Compression, Encoding
+from .stats import InfoStatus, OperationError, OperationStats, OperationStatus
 
 
 @dataclass(frozen=True)
-class CompressionStats:
+class CompressionStats(OperationStats):
 	level: int
-	duration_seconds: float
-	size_ratio: float
-	"""Original size divided by compressed size"""
 
 	@property
 	def info_headers(self) -> dict[str, str]:
-		value = "; ".join(
-			[
-				f"ratio={self.size_ratio:.1f}x",
-				f"level={self.level}",
-				f"duration={self.duration_seconds * 1000:.1f}ms",
-			],
+		fields = self.info_fields(
+			success=InfoStatus.compressed,
+			failure=InfoStatus.compression_failed,
+			skipped=InfoStatus.skipped_compressed_too_large,
 		)
+		value = "; ".join((*fields, f"level={self.level}"))
 		return {"X-Flask-Squeeze-Compress": value}
+
+
+def _compress_body(body: bytes, compression: Compression) -> bytes:
+	match compression.encoding:
+		case Encoding.br:
+			return brotli.compress(body, quality=compression.level)
+		case Encoding.deflate:
+			return zlib.compress(body, level=compression.level)
+		case Encoding.gzip:
+			# A fixed mtime makes the output deterministic,
+			# as required by the strong ETag of static files
+			return gzip.compress(body, compresslevel=compression.level, mtime=0)
 
 
 def compress(body: bytes, compression: Compression) -> tuple[bytes, CompressionStats]:
 	start_time = time.perf_counter()
+	try:
+		compressed_body = _compress_body(body, compression)
+	except (brotli.error, zlib.error):
+		return body, CompressionStats(
+			level=compression.level,
+			duration_seconds=time.perf_counter() - start_time,
+			before_bytes=len(body),
+			after_bytes=None,
+			error=OperationError.compression_error,
+		)
 
-	match compression.encoding:
-		case Encoding.br:
-			compressed_body = brotli.compress(body, quality=compression.level)
-		case Encoding.deflate:
-			compressed_body = zlib.compress(body, level=compression.level)
-		case Encoding.gzip:
-			# A fixed mtime makes the output deterministic,
-			# as required by the strong ETag of static files
-			compressed_body = gzip.compress(body, compresslevel=compression.level, mtime=0)
-
-	size_ratio = len(body) / len(compressed_body) if len(compressed_body) > 0 else 1.0
-
-	return compressed_body, CompressionStats(
+	stats = CompressionStats(
 		level=compression.level,
 		duration_seconds=time.perf_counter() - start_time,
-		size_ratio=size_ratio,
+		before_bytes=len(body),
+		after_bytes=len(compressed_body),
 	)
+	return (compressed_body if stats.status is OperationStatus.applied else body), stats

@@ -10,6 +10,7 @@ from turbohtml.clean import minify_css as minify_stylesheet
 from turbohtml.clean import minify_js as minify_javascript
 
 from .plan import Minification
+from .stats import InfoStatus, OperationError, OperationStats, OperationStatus
 
 JS_OPTIONS = JSMinify(mangle=False, fold=False)
 CSS_OPTIONS = CSSMinify()
@@ -33,19 +34,15 @@ def minification_options_signature() -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
-class MinificationStats:
-	duration_seconds: float
-	size_ratio: float
-	"""Original size divided by minified size"""
-
+class MinificationStats(OperationStats):
 	@property
 	def info_headers(self) -> dict[str, str]:
-		value = "; ".join(
-			[
-				f"ratio={self.size_ratio:.1f}x",
-				f"duration={self.duration_seconds * 1000:.1f}ms",
-			],
+		fields = self.info_fields(
+			success=InfoStatus.minified,
+			failure=InfoStatus.minification_failed,
+			skipped=InfoStatus.skipped_minified_too_large,
 		)
+		value = "; ".join(fields)
 		return {"X-Flask-Squeeze-Minify": value}
 
 
@@ -74,27 +71,42 @@ def minify_css(css: str) -> str:
 
 
 def minify_js(js: str) -> str:
-	return minify_javascript(js, JS_OPTIONS, on_error="passthrough")
+	return minify_javascript(js, JS_OPTIONS, on_error="raise")
+
+
+def _failed_minification(body: bytes, start_time: float, error: OperationError) -> tuple[bytes, MinificationStats]:
+	return body, MinificationStats(
+		duration_seconds=time.perf_counter() - start_time,
+		before_bytes=len(body),
+		after_bytes=None,
+		error=error,
+	)
 
 
 def minify(body: bytes, minification: Minification) -> tuple[bytes, MinificationStats]:
-	"""Minify UTF-8 text. Raises UnicodeDecodeError for anything else."""
+	"""Minify UTF-8 text, retaining the input on parsing failure or size increase."""
 	start_time = time.perf_counter()
 
 	# utf-8-sig drops a leading BOM, which the HTML parser would otherwise read as text before the doctype
-	text = body.decode("utf-8-sig")
+	try:
+		text = body.decode("utf-8-sig")
+	except UnicodeDecodeError:
+		return _failed_minification(body, start_time, OperationError.invalid_utf8)
 	match minification:
 		case Minification.html:
 			minified_text = minify_html(text)
 		case Minification.css:
 			minified_text = minify_css(text)
 		case Minification.js:
-			minified_text = minify_js(text)
+			try:
+				minified_text = minify_js(text)
+			except ValueError:
+				return _failed_minification(body, start_time, OperationError.javascript_parse_error)
 	minified_body = minified_text.encode("utf-8")
 
-	size_ratio = len(body) / len(minified_body) if len(minified_body) > 0 else 1.0
-
-	return minified_body, MinificationStats(
+	stats = MinificationStats(
 		duration_seconds=time.perf_counter() - start_time,
-		size_ratio=size_ratio,
+		before_bytes=len(body),
+		after_bytes=len(minified_body),
 	)
+	return (minified_body if stats.status is OperationStatus.applied else body), stats

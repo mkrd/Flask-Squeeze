@@ -16,6 +16,7 @@ from .compress import CompressionStats
 from .minify import MinificationStats
 from .plan import Compression, Encoding, Minification, SqueezePlan
 from .squeeze import SQUEEZE_FINGERPRINT, SqueezeResult, apply_squeeze_plan
+from .stats import OperationError
 
 FILENAME_PART_COUNT = 5
 CACHE_FORMAT_MAGIC = b"FSQ1"
@@ -203,6 +204,25 @@ def _required_json_statistic(json_object: object, key: str) -> float:
 	return value
 
 
+def _optional_json_size(json_object: object, key: str) -> int | None:
+	value = _optional_json_field(json_object, key, int)
+	if value is not None and (isinstance(value, bool) or value < 0):
+		raise InvalidMetadataError(key)
+	return value
+
+
+def _required_json_size(json_object: object, key: str) -> int:
+	value = _optional_json_size(json_object, key)
+	if value is None:
+		raise InvalidMetadataError(key)
+	return value
+
+
+def _optional_json_error(json_object: object) -> OperationError | None:
+	value = _optional_json_field(json_object, "error", str)
+	return OperationError(value) if value is not None else None
+
+
 @dataclass(frozen=True)
 class CacheMetadata:
 	"""JSON metadata preceding the squeezed body in a cache file."""
@@ -232,17 +252,21 @@ class CacheMetadata:
 				if minification is None
 				else MinificationStats(
 					duration_seconds=_required_json_statistic(minification, "duration_seconds"),
-					size_ratio=_required_json_statistic(minification, "size_ratio"),
+					before_bytes=_required_json_size(minification, "before_bytes"),
+					after_bytes=_optional_json_size(minification, "after_bytes"),
+					error=_optional_json_error(minification),
 				),
 				compression_stats=None
 				if compression is None
 				else CompressionStats(
 					level=_required_json_level(compression),
 					duration_seconds=_required_json_statistic(compression, "duration_seconds"),
-					size_ratio=_required_json_statistic(compression, "size_ratio"),
+					before_bytes=_required_json_size(compression, "before_bytes"),
+					after_bytes=_optional_json_size(compression, "after_bytes"),
+					error=_optional_json_error(compression),
 				),
 			)
-		except InvalidMetadataError:
+		except (InvalidMetadataError, ValueError):
 			return None
 
 
