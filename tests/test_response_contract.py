@@ -393,8 +393,8 @@ class BodyAndHeadersTest(SampleAppTestCase):
 				body = decoded_body(response)
 				self.assertLess(len(body), len(source))
 				self.assertIn(marker, body)
-				minimum_compression_ratio = 2.0
-				self.assertGreater(len(source) / len(response.data), minimum_compression_ratio)
+				minimum_squeeze_ratio = 2.0
+				self.assertGreater(len(source) / len(response.data), minimum_squeeze_ratio)
 
 
 class InfoHeadersAndLoggingTest(SampleAppTestCase):

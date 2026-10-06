@@ -8,7 +8,7 @@ Flask-Squeeze is a Flask extension that automatically:
 - **Minifies** responses with JavaScript, CSS, and HTML content
 - **Compresses** responses with brotli, gzip, or deflate, based on browser support (on equal client preference: brotli, then gzip, then deflate)
 - **Pads** compressed dynamic responses with a random length header, which makes BREACH style size measurements harder
-- **Caches** squeezed static files so they don't need to be re-compressed, in memory and optionally on disk
+- **Caches** squeezed static files so they don't need to be re-squeezed, in memory and optionally on disk
 - **Optimizes performance** with separate compression levels for static and dynamic content
 - **Works out-of-the-box** - no changes needed to your existing Flask routes or templates
 
