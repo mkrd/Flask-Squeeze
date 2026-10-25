@@ -13,10 +13,8 @@ classifiers = [
 	"Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-
 ##########################################################################################
 #### MARK: Dependencies
-
 
 requires-python = ">=3.11,<3.15"
 
@@ -31,10 +29,8 @@ dev = [
 	"typing-extensions~=4.16.0",
 ]
 
-
 ##########################################################################################
 #### MARK: Packaging
-
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]
@@ -47,10 +43,8 @@ module-root = ""
 [tool.uv]
 package = true
 
-
 ##########################################################################################
 #### MARK: Ruff
-
 
 [tool.ruff]
 cache-dir = ".cache/ruff"
@@ -76,10 +70,8 @@ quote-style = "double"
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false # If imports fit in one line format them in one line
 
-
 ##########################################################################################
 #### MARK: Pyrefly
-
 
 [tool.pyrefly]
 min-severity = "warn"
@@ -89,10 +81,8 @@ python-version = "3.11"
 [tool.pyrefly.errors]
 implicit-any-lambda = "ignore"
 
-
 ##########################################################################################
 #### MARK: Testing
-
 
 [tool.coverage.run]
 branch = true
