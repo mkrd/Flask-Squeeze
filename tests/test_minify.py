@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from flask_squeeze.minify import is_document, minify, minify_css, minify_html, minify_js
@@ -138,8 +137,8 @@ class MinifyTest(unittest.TestCase):
 			'<p>Grüße&nbsp;Welt</p><script type=application/json>{"x": "a  b"}</script>',
 		)
 
-	def test_minify_htmx_preserves_unsupported_syntax(self) -> None:
-		source = (Path(__file__).parent / "fixtures" / "htmx.js").read_bytes()
+	def test_minify_js_keeps_source_on_parse_error(self) -> None:
+		source = b"const config = {"
 
 		body, stats = minify(source, Minification.js)
 		self.assertEqual(body, source)
