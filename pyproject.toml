@@ -101,5 +101,3 @@ source = ["flask_squeeze"]
 
 [tool.coverage.report]
 show_missing = true
-omit = ["tests/*"]
-exclude_also = ["if TYPE_CHECKING:"]
