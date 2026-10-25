@@ -1,6 +1,6 @@
 [project]
 name = "flask-squeeze"
-version = "5.0.3"
+version = "5.0.4"
 description = "Compress and minify Flask responses!"
 readme = "README.md"
 authors = [{ name = "Marcel Kröker", email = "kroeker.marcel@gmail.com" }]
@@ -16,7 +16,7 @@ classifiers = [
 ##########################################################################################
 #### MARK: Dependencies
 
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11,<3.16"
 
 dependencies = ["flask>=1", "brotli>=1.2.1", "turbohtml>=1.8.0"]
 
