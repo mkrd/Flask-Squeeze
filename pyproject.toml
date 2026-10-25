@@ -18,7 +18,7 @@ classifiers = [
 #### MARK: Dependencies
 
 
-requires-python = ">=3.11, <3.15"
+requires-python = ">=3.11,<3.15"
 
 dependencies = ["flask>=1", "brotli>=1.2.1", "turbohtml>=1.8.0"]
 
@@ -82,9 +82,9 @@ split-on-trailing-comma = false # If imports fit in one line format them in one 
 
 
 [tool.pyrefly]
-python-version = "3.11"
 min-severity = "warn"
 preset = "strict"
+python-version = "3.11"
 
 [tool.pyrefly.errors]
 implicit-any-lambda = "ignore"
